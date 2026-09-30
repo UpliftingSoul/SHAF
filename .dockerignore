@@ -1,0 +1,16 @@
+# 后端镜像上下文不包含密钥、Git、虚拟环境、前端依赖和运行日志。
+.git
+.venv
+.idea
+.pytest_cache
+**/__pycache__
+**/*.pyc
+.env
+.env.*
+!.env.example
+Introduction.txt
+frontend
+log
+logs
+data
+docs

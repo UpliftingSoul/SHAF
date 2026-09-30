@@ -1,0 +1,9 @@
+# 前端构建上下文仅包含源码和锁文件，排除本地依赖、报告与环境变量。
+node_modules
+dist
+coverage
+test-results
+playwright-report
+.env
+.env.*
+!.env.example

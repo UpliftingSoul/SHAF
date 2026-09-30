@@ -1,3 +1,4 @@
+"""后端配置入口：模型与依赖服务地址、预算和前后端 HTTP 边界，统一由环境覆盖。"""
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 

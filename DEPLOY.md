@@ -1,165 +1,93 @@
-# MewHelp 部署任务书
+# SHAF 部署边界与应用容器
 
-这份文件是写给 AI 编程助手执行的。把它交给 Claude Code、Cursor 之类的工具，说一句
-「按 DEPLOY.md 把项目部署起来」就行，它会自己走完下面的步骤。
+本文件是前后端分离后的部署初稿，供后续正式部署设计参考，不代表当前阶段已完成云部署。提供两个应用镜像及组合配置，供 Ubuntu 云端使用。所有服务在云端容器运行；本地只开发、构建和执行不依赖真实基础设施的测试。旧版「本机一键启动」任务书可从 Git 基线查阅，其中初始化、就绪检查和业务验收仍有参考价值。
 
-想自己动手、或者想知道每一步在干什么，看 `README.md`。
+## 1. 页面与 API 的职责
 
----
+- Vue 负责十二个页面和交互，生产构建生成 `frontend/dist/`。
+- Nginx 提供构建文件，页面 URL 回退到 `index.html`，`/api/` 原样代理到 `backend:8000`。
+- FastAPI 只提供业务 API；`/docs`、`/openapi.json` 是后端接口文档，Nginx 默认不对公网代理它们。
+- SSE 关闭 Nginx 响应缓冲、缓存及压缩，读取超时为 600 秒。API 错误不会回退成 Vue HTML。
+- `/api/health` 仅表示进程存活，不能证明 MySQL、Milvus、MCP 或模型调用正常。
 
-## 目标
+## 2. 已提供的文件
 
-在本机把 MewHelp 跑起来，最终验收标准只有一条：
+| 文件 | 作用 |
+|---|---|
+| `frontend/Dockerfile` | Node 构建 Vue，Nginx 镜像只保留静态产物与代理配置 |
+| `frontend/nginx.conf` | SPA 路由、哈希资源缓存与 SSE 代理 |
+| `Dockerfile.backend` | Python 3.12、uv、make/bash/curl 和 FastAPI 运行环境 |
+| `docker-compose.app.yml` | 两个应用容器；合并现有基础设施 Compose 使用 |
+| `docker-compose.yml` | 原有 MySQL、Milvus、etcd、MinIO 教学基础设施配置 |
+| `docker-compose.langfuse.yml` | 原有独立 Langfuse 观测栈 |
 
-**浏览器打开 <http://localhost:8000>，问「订单 1001 的物流到哪了」，能看到回答，
-并且回答上方出现两个工具调用标记（`query_order` 和 `query_logistics`）。**
+这些是应用容器基础配置，不是已经验收的完整云端部署。当前工作机没有 Docker，镜像构建、Nginx 语法检查及真实容器连通测试尚未执行。
 
-只出文字、不出工具调用标记，不算完成。
+## 3. 云端环境变量
 
-## 前置条件（执行前先确认，缺了就告诉用户，不要自己乱装）
+复制 `.env.example` 为 `.env`，填写真实上游配置；不要把密钥写入 Vue 的 `VITE_*` 变量，也不要提交 `.env`。
 
-| 项 | 检查命令 | 缺了怎么办 |
-|---|---|---|
-| uv | `uv --version` | macOS `brew install uv`；Linux `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
-| Docker | `docker compose version` | 要用户自己装 Docker Desktop 或 Colima 并启动 |
-| make | `make --version` | macOS/Linux 一般自带 |
-| 三个模型密钥 | 见第 2 步 | **必须问用户要，不要编造，也不要从别处翻** |
+| 配置 | 在容器中的含义 |
+|---|---|
+| `DATABASE_URL` | 指向 MySQL 容器，例如 `mysql+asyncmy://业务账号:密码@mysql:3306/mewhelp` |
+| `MILVUS_URI` | 组合配置固定为 `http://milvus-standalone:19530` |
+| `MCP_LOGISTICS_URL` | 指向物流 MCP 容器的 `/mcp`，例如 `http://mcp-logistics:8101/mcp` |
+| `MCP_AFTERSALES_URL` | 指向售后 MCP 容器的 `/mcp`，例如 `http://mcp-aftersales:8102/mcp` |
+| `CLASSIFIER_URL` | 指向主题分类器容器，例如 `http://classifier:8110` |
+| `LANGFUSE_BASE_URL` | 指向 Langfuse 容器网络内地址，跨 Compose 项目需要共享网络 |
+| `CHECKPOINTER_DB_PATH` | 默认 `data/ch05_checkpoints.sqlite`，位于持久化挂载内 |
+| `CORS_ORIGINS` | 同域 Nginx 入口保持 `[]`；开发直连后端时填明确来源的 JSON 数组 |
+| `FRONTEND_PORT` | Nginx 宿主端口，默认 8080；它是 Compose 配置，不是 FastAPI 设置 |
 
-内存 8G 起，磁盘 10G 起。Python 不用管，uv 会自己下。
+容器内的 `localhost` 指当前容器自身，不能代替其他服务名。开发机调用云端 API 时，Vite 的 `API_PROXY_TARGET` 则要填开发机能访问的地址。
 
----
+现有基础设施文件保留原数据库、卷名和教学凭据，避免无意迁移数据。正式云部署时需要配置实际业务账号、密码、内网端口、访问控制和 HTTPS；当前 API 没有登录鉴权，后台页面能够触发写入及计算作业，访问边界须由部署负责人落实。
 
-## 第 1 步 装依赖
+## 4. Ubuntu 应用容器启动步骤
 
-```bash
-uv sync
-```
-
-会跑几分钟，中间长时间没输出是正常的，不要中断重试。
-
-**验收**：命令退出码为 0，`.venv/` 目录已生成。
-
-## 第 2 步 配置 .env
-
-```bash
-cp .env.example .env
-```
-
-然后编辑 `.env`，填这三项：
-
-```bash
-CHAT_BASE_URL=https://api.deepseek.com/v1
-CHAT_MODEL=deepseek-v4-flash
-CHAT_API_KEY=<用户提供的聊天密钥>
-EMBED_API_KEY=<用户提供的硅基流动密钥>
-RERANK_API_KEY=<同一个硅基流动密钥>
-```
-
-嵌入和重排走硅基流动（`bge-m3` 和 `bge-reranker-v2-m3` 在那边免费），这两位填同一个值；
-聊天上游用户自己选，上面给的是 DeepSeek 官方。地址那两行有代码默认值，不用填。
-
-**密钥必须问用户要。** 不要从环境变量、其他项目、历史记录里翻，也不要写假值糊弄过去 ——
-假值会让第 4 步静默产出错误结果，比直接失败更难查。
-
-**验收**：`.env` 存在，三个 `*_API_KEY` 都非空。不要把密钥内容打印到终端。
-
-## 第 3 步 起依赖容器
+先完成基础设施以及独立 MCP、分类器容器的配置、建库与知识向量化，再启动应用。服务监听地址需要允许容器网络访问：FastAPI 镜像已使用 `0.0.0.0`；原 MCP/分类器脚本的回环监听在独立容器部署阶段也要配置成容器可访问的监听地址。
 
 ```bash
-docker compose up -d
+docker compose -f docker-compose.yml -f docker-compose.app.yml config --quiet
+docker compose -f docker-compose.yml -f docker-compose.app.yml up -d --build backend frontend
 ```
 
-拉起 MySQL、Milvus、MinIO、etcd 四个容器。建表不用管，`sql/` 已经挂进 MySQL 的
-初始化目录，首次启动会自动按序执行。
+使用同一组文件和项目名进行后续管理，避免意外创建另一套数据库卷。MySQL 首次空卷启动时按文件名执行 `sql/`；已有卷不会自动执行新增迁移。不能通过删除数据卷来应用 SQL 更新。
 
-**验收**：`docker compose ps` 里 mysql 和 milvus 都是 healthy。
+浏览器访问 `http://服务器地址:8080`，后端 8000 不映射公网。若要访问后端 `/docs`，使用受控端口转发或部署负责人添加专用入口。
 
-> **头半分钟 MinIO 显示 starting 是正常的**，Docker 每 30 秒才做一次健康检查，刚起来那会儿
-> 第一次还没轮到。等一下它会变成 healthy，四个容器最终都是 healthy。
-> 要是它一直停在 unhealthy，那是真出问题了，别当成正常现象放过去。
+## 5. 持久化与作业环境
 
-> **镜像拉不下来**（国内常见）：Docker Hub 和 quay.io 经常连不上。先确认镜像站活着 ——
-> `curl -sI https://docker.m.daocloud.io/v2/` **返回 401 是正常的**，那是 registry 的
-> 鉴权挑战，不是失败。然后走镜像站拉、再打回原名：
->
-> ```bash
-> docker pull docker.m.daocloud.io/library/mysql:8
-> docker tag  docker.m.daocloud.io/library/mysql:8  mysql:8
-> docker pull docker.m.daocloud.io/minio/minio:RELEASE.2024-05-28T17-19-04Z
-> docker tag  docker.m.daocloud.io/minio/minio:RELEASE.2024-05-28T17-19-04Z minio/minio:RELEASE.2024-05-28T17-19-04Z
-> docker pull quay.m.daocloud.io/coreos/etcd:v3.5.16
-> docker tag  quay.m.daocloud.io/coreos/etcd:v3.5.16  quay.io/coreos/etcd:v3.5.16
-> docker pull docker.m.daocloud.io/milvusdb/milvus:v2.6.22
-> docker tag  docker.m.daocloud.io/milvusdb/milvus:v2.6.22  milvusdb/milvus:v2.6.22
-> ```
->
-> 打回原名之后 `docker-compose.yml` 一个字都不用改。mysql 镜像有 1.1GB，
-> **给足时间，不要用短超时去 pull**，没拉完就被中断会让人误以为镜像站不通。
+应用组合配置挂载仓库 `data/` 和 `log/`：
 
-> **3306 被占**：本机如果已经有别的 MySQL 容器占着 3306，`docker compose up` 会失败。
-> 告诉用户端口冲突，让用户决定是停掉那个容器还是改端口，**不要自作主张停用户的容器**。
+- `data/kb/`：知识源文件；后端必须能读取。
+- `data/*.sqlite*`：LangGraph checkpoint；中断续跑依赖它。
+- `data/ch04/reports/`、`data/ch09/reports/`、`data/ch10/reports/`：页面读取的报告与读图注。
+- `data/ch10/`：训练、验证、测试语料与模型/ONNX 产物；不能仅保留报告。
+- `log/`：业务日志与作业日志。
 
-## 第 4 步 灌测试数据
+MySQL、Milvus、etcd、MinIO 和 Langfuse 各自保留数据卷。备份和恢复必须同时考虑业务库与 checkpoint，避免会话状态和消息历史脱节。
 
-```bash
-make seed        # FAQ(query_faq 的数据源)
-make seed-conv   # 历史会话(ch03 挖知识用)
-```
+后台作业继续使用原白名单 make 目标及 Linux 进程组停止机制。普通建库、飞轮和评估脚本在后端环境运行；训练/导出需 `ml` 重依赖、足够内存及模型文件，镜像默认不预装这组依赖。作业失败日志应真实呈现，不能用模拟成功替代。
 
-订单和物流不在这里，它们是 `app/tools/business.py` 里按 user_id 稳定生成的模拟数据，
-不落库，任何账号名下都有 1001 和 2002 两笔演示单。数据库里没有 orders 表是正常的。
+原 `seed-conv` / `kb-reset` 等目标使用 Docker CLI，原 `classifier-up/down` 管理同一执行环境的进程。**它们不会自动管理外部独立服务容器**。本阶段保留这些接口和页面按钮，未引入 Docker socket 或改变服务编排权限；独立容器的启停、数据初始化和训练资源安排需要在后续部署阶段统一对接。应用镜像中的 make 不等于已经具备所有目标的运行前置。
 
-第 3 步首启时这两个脚本已经自动跑过一遍了，这里再跑是为了重复部署或数据被改乱时重灌。
-种子脚本幂等，重复执行不会出问题。
+`make dev`、`make mcp-up`、`make classifier-up` 等教程本机多进程启动方式，不作为本项目云端部署流程。
 
-**验收**：`docker exec -i mewhelp-mysql mysql -uroot -proot mewhelp -e "SELECT COUNT(*) FROM faq;"`
-返回的数字大于 0。
+## 6. 验收清单
 
-## 第 5 步 建知识库
+1. 前端直接访问 `/kb`、`/topics/questions?label=退换货` 等深层路径并刷新，仍显示正确页面。
+2. `/api/health` 返回 JSON；不存在的 `/api/...` 返回 API 错误，不能返回 Vue HTML。
+3. 聊天逐段显示增量；订单选择、工单确认和取消能续跑；退款表单只在用户确认后提交。
+4. MySQL 消息历史与 SQLite 中断状态可跨应用容器重启保留。
+5. 知识录入、待审审核、飞轮及报告作业检查真实依赖；分类器不能连通时显示离线。
+6. 依赖不可用或报告未生成时，页面保留各模块独立错误/缺产物提示。
+7. 训练、写回失败或停止任务的日志与真实执行状态一致。
 
-```bash
-make kb-build       # 切 chunk 落 MySQL
-make kb-vectorize   # 向量化写进 Milvus，这步会调用上游嵌入接口
-```
+本地已完成的单元与受控浏览器验证记录见 `docs/frontend-separation-plan.md`。它们验证页面和 API 契约，不能替代上述云端真实链路验收。
 
-**验收**：`kb-vectorize` 输出里 Milvus 现有条数大于 0。
+## 7. 配置依据
 
-这一步失败通常是密钥或网络问题，不是代码问题 —— 先回到第 2 步核对密钥，不要改代码。
-
-## 第 6 步 启动
-
-```bash
-make dev
-```
-
-这条命令会拉起依赖容器、等 Milvus 健康检查通过、拉起两台 MCP Server（:8101 / :8102），
-最后启动应用（:8000）。
-
-**它是前台常驻进程**，需要放到后台执行，否则会一直阻塞。停的时候用 `make dev-down`
-（关掉 MCP Server 和应用进程）。人工前台跑的话，Ctrl+C 就停了。启动要等几十秒，
-因为它会等 Milvus 就绪才继续，这是正常的。
-
-**验收**：`curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/` 返回 200。
-
-## 第 7 步 验收
-
-```bash
-printf '{"user_id":"u1","message":"订单 1001 的物流到哪了"}' > /tmp/q.json
-curl -s --max-time 90 http://localhost:8000/api/agent \
-     -H 'Content-Type: application/json' --data-binary @/tmp/q.json
-```
-
-**验收**：返回的 JSON 里 `tool_calls` 数组包含 `query_order` 和 `query_logistics` 两项，
-`answer` 里有物流状态。
-
-只有 `answer` 没有 `tool_calls`，说明模型没有触发工具调用，通常是 `CHAT_MODEL` 写的
-名字上游不认，或者中转端点不校验模型名、拿了别的模型应答。回到第 2 步核对。
-
----
-
-## 完成之后
-
-用一段话告诉用户：跑通了、访问地址是 <http://localhost:8000>、以及验收那一步实际
-调用了哪几个工具。
-
-不要顺手改动项目代码。这份任务书里的步骤如果和实际不符，报告差异，让用户来定。
+- [Nginx proxy_buffering](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_buffering)：关闭缓冲以即时转发增量。
+- [uv Docker 集成](https://docs.astral.sh/uv/guides/integration/docker/)：锁文件依赖同步与独立 Python 运行环境。
+- [Vite 静态部署](https://vite.dev/guide/static-deploy.html)：`dist` 是部署产物，开发服务器和 preview 不作为生产入口。
