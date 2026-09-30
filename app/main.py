@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -22,6 +23,7 @@ from app.api.rageval import router as rageval_router
 from app.api.review import router as review_router
 from app.api.topics import router as topics_router
 from app.graph import runtime
+from app.config import settings
 
 
 # 获取业务专属logger实例，命名空间app，与uvicorn内置日志隔离
@@ -112,7 +114,22 @@ def _check_context_budget() -> None:
         )
 
 
-app = FastAPI(title="MewHelp", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="SHAF", version="0.1.0", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type"],
+)
+
+
+@app.get("/api/health", tags=["运维"])
+async def health() -> dict:
+    """进程存活检查；不代表 MySQL、Milvus 或上游模型已经可用。"""
+    return {"status": "ok", "service": "SHAF"}
+
+
 app.include_router(actions_router)
 app.include_router(chat_router)
 app.include_router(extract_router)

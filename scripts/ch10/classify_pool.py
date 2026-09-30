@@ -11,12 +11,13 @@ import asyncio
 import datetime as dt
 import json
 import pathlib
+import os
 
 import httpx
 
 from app.db import repository
 
-SERVICE = "http://127.0.0.1:8110"
+SERVICE = os.getenv("CLASSIFIER_URL", "http://127.0.0.1:8110").rstrip("/")
 REPORTS = pathlib.Path("data/ch10/reports")
 
 

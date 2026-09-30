@@ -9,12 +9,13 @@
 import datetime as dt
 import json
 import pathlib
+import os
 import urllib.request
 
 VAL = "data/ch10/dataset/val.jsonl"
 MODEL_THRESHOLD = pathlib.Path("data/ch10/model/threshold.json")
 REPORTS = pathlib.Path("data/ch10/reports")
-SERVICE = "http://127.0.0.1:8110/classify"
+SERVICE = os.getenv("CLASSIFIER_URL", "http://127.0.0.1:8110").rstrip("/") + "/classify"
 
 
 def main() -> None:

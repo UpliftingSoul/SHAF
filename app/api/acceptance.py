@@ -15,6 +15,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.core import jobs
+from app.config import settings
 from app.core.taxonomy import SEVERITY, TOPIC_NAMES
 from app.db import repository
 
@@ -25,7 +26,7 @@ REPORTS = CH10 / "reports"
 DATASET = CH10 / "dataset"
 MODEL = CH10 / "model"
 ONNX = CH10 / "onnx"
-CLASSIFIER = "http://127.0.0.1:8110"
+CLASSIFIER = settings.classifier_url.rstrip("/")
 
 # 语料血缘的四段落差:捞池 → 脱敏去重 → 预标+模拟补足 → 分层切卷。
 # 每段配一句「这一步在干什么」,页面直接显示,读者不必回去翻脚本。

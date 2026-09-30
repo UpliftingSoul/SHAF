@@ -28,6 +28,12 @@ class Settings(BaseSettings):
     database_url: str = "mysql+asyncmy://root:root@localhost:3306/mewhelp"
     test_database_url: str = "mysql+asyncmy://root:root@localhost:3306/mewhelp_ch02_test"
 
+    # 前后端分离：同域代理不需要 CORS；直连开发时显式配置允许的浏览器来源。
+    # 环境变量使用 JSON 数组，例如 CORS_ORIGINS=["http://localhost:5173"]。
+    cors_origins: list[str] = []
+    # 分类器可独立容器部署；容器之间使用服务名，不能使用宿主回环地址。
+    classifier_url: str = "http://127.0.0.1:8110"
+
     # ch03 知识库检索
     embed_model: str = "BAAI/bge-m3"          # 上游真实名(无网关别名可用)
     milvus_uri: str = "http://localhost:19530"   # ch04: Lite → Standalone

@@ -50,19 +50,19 @@ async def chat(req: ChatRequest):
         # 响应头在第一帧发出去的那一刻就定了，之后再想改状态码已经来不及，所以前端得靠 event: error 这一帧知道出事了
         except runtime.ConversationNotFound:
             # 会话不存在，推送SSE错误事件
-            for f in _sse_error("会话不存在"):
+            async for f in _sse_error("会话不存在"):
                 yield f
             return
         except SQLAlchemyError:
             # 数据库异常，记录日志，对外屏蔽内部细节
             logger.exception("数据库错误 user_id=%s", req.user_id)
-            for f in _sse_error("数据库暂时不可用,请稍后重试"):
+            async for f in _sse_error("数据库暂时不可用,请稍后重试"):
                 yield f
             return
         except Exception:
             # 全局兜底捕获，记录完整异常堆栈
             logger.exception("图编排失败 user_id=%s", req.user_id)
-            for f in _sse_error("上游模型暂时不可用,请稍后重试"):
+            async for f in _sse_error("上游模型暂时不可用,请稍后重试"):
                 yield f
             return
         # 正常流结束标记，通知前端对话完成
