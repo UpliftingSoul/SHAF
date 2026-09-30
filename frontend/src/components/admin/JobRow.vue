@@ -5,7 +5,23 @@ import type { JobSpec } from '../../types/jobs'
 defineProps<{ jobs: JobSpec[] }>()
 const emit = defineEmits<{ finish: [] }>()
 </script>
-<template><div class="jobs"><JobButton v-for="job in jobs" :key="job.name" :spec="job" @finish="emit('finish')" /></div></template>
+<template>
+  <div class="jobs">
+    <JobButton v-for="job in jobs" :key="job.name" :spec="job" @finish="emit('finish')" />
+  </div>
+</template>
 <style scoped>
-.jobs { display:flex; flex-wrap:wrap; gap:8px 16px; align-items:flex-start; }.jobs :deep(.job-control) { min-width:0; max-width:100%; }.jobs :deep(.logbox) { max-width:calc(100vw - 80px); }
+.jobs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: flex-start;
+}
+.jobs :deep(.job-control) {
+  min-width: 0;
+  max-width: 100%;
+}
+.jobs :deep(.logbox) {
+  max-width: calc(100vw - 80px);
+}
 </style>

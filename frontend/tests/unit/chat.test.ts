@@ -15,7 +15,10 @@ function setup() {
   scopes.push(scope)
   return scope.run(useChat)!
 }
-afterEach(() => { scopes.splice(0).forEach(scope => scope.stop()); vi.clearAllMocks() })
+afterEach(() => {
+  scopes.splice(0).forEach((scope) => scope.stop())
+  vi.clearAllMocks()
+})
 
 describe('聊天会话隔离', () => {
   it('新会话后旧流不能改会话号或内容', async () => {
@@ -24,7 +27,9 @@ describe('聊天会话隔离', () => {
     let finish!: () => void
     vi.mocked(streamPost).mockImplementation(async (_path, _body, _signal, receive) => {
       callback = receive
-      await new Promise<void>(resolve => { finish = resolve })
+      await new Promise<void>((resolve) => {
+        finish = resolve
+      })
     })
     const sending = chat.send('运费多少')
     chat.newConversation()
@@ -40,21 +45,37 @@ describe('聊天会话隔离', () => {
     const chat = setup()
     const source = chat.addMessage('bot', '')
     source.conversationId = 13
-    source.interrupt = { kind: 'confirm_ticket', preview: { ticket_type: '咨询', description: '问题' } }
+    source.interrupt = {
+      kind: 'confirm_ticket',
+      preview: { ticket_type: '咨询', description: '问题' },
+    }
     vi.mocked(streamPost).mockResolvedValue()
     await chat.resume(source, { confirmed: false })
     await chat.resume(source, { confirmed: true })
     expect(streamPost).toHaveBeenCalledTimes(1)
-    expect(streamPost).toHaveBeenCalledWith('/api/actions/resume', { conversation_id: 13, confirmed: false }, expect.any(AbortSignal), expect.any(Function))
+    expect(streamPost).toHaveBeenCalledWith(
+      '/api/actions/resume',
+      { conversation_id: 13, confirmed: false },
+      expect.any(AbortSignal),
+      expect.any(Function),
+    )
   })
   it('历史取数失败保留错误并可重新加载同一会话', async () => {
     const chat = setup()
     vi.mocked(request).mockRejectedValueOnce(new Error('数据库暂时不可用'))
     await chat.switchConversation(13)
     expect(chat.historyError.value).toBe('数据库暂时不可用')
-    vi.mocked(request).mockResolvedValue({ items: [{ role: 'user', content: '物流到哪了' }, { role: 'assistant', content: '请提供订单号' }] })
+    vi.mocked(request).mockResolvedValue({
+      items: [
+        { role: 'user', content: '物流到哪了' },
+        { role: 'assistant', content: '请提供订单号' },
+      ],
+    })
     await chat.switchConversation(13)
     expect(chat.historyError.value).toBe('')
-    expect(chat.messages.value.map(message => message.text)).toEqual(['物流到哪了', '请提供订单号'])
+    expect(chat.messages.value.map((message) => message.text)).toEqual([
+      '物流到哪了',
+      '请提供订单号',
+    ])
   })
 })

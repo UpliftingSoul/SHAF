@@ -18,9 +18,15 @@ export function useResource<T>() {
       const value = await request<T>(path, { signal: controller.signal })
       if (version === generation) data.value = value
     } catch (cause) {
-      if (version === generation && !controller.signal.aborted) error.value = (cause as Error).message
-    } finally { if (version === generation) loading.value = false }
+      if (version === generation && !controller.signal.aborted)
+        error.value = (cause as Error).message
+    } finally {
+      if (version === generation) loading.value = false
+    }
   }
-  onScopeDispose(() => { generation++; controller?.abort() })
+  onScopeDispose(() => {
+    generation++
+    controller?.abort()
+  })
   return { data, loading, error, load }
 }

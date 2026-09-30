@@ -1,5 +1,8 @@
 /** POST SSE 协议：跨字节解码、逐帧分发、显式结束及取消；不把断流当成成功。 */
-export interface StreamFrame { event: string; data: string }
+export interface StreamFrame {
+  event: string
+  data: string
+}
 
 export class FrameDecoder {
   private buffer = ''
@@ -21,7 +24,10 @@ export class FrameDecoder {
     return frames
   }
   private line(line: string, output: StreamFrame[]) {
-    if (line) { this.lines.push(line); return }
+    if (line) {
+      this.lines.push(line)
+      return
+    }
     let event = 'message'
     const data: string[] = []
     for (const item of this.lines) {
@@ -37,15 +43,22 @@ export class FrameDecoder {
 }
 
 export async function streamPost(
-  path: string, body: unknown, signal: AbortSignal,
+  path: string,
+  body: unknown,
+  signal: AbortSignal,
   onFrame: (payload: Record<string, unknown>) => void,
 ): Promise<void> {
   const response = await fetch(path, {
-    method: 'POST', signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    method: 'POST',
+    signal,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   })
   if (!response.ok) {
     const error = await response.json().catch(() => ({}))
-    throw new Error(typeof error.detail === 'string' ? error.detail : `请求失败（HTTP ${response.status}）`)
+    throw new Error(
+      typeof error.detail === 'string' ? error.detail : `请求失败（HTTP ${response.status}）`,
+    )
   }
   if (!response.body) throw new Error('浏览器无法读取流式响应')
   const reader = response.body.getReader()
@@ -54,7 +67,10 @@ export async function streamPost(
   let finished = false
   const dispatch = (items: StreamFrame[]) => {
     for (const item of items) {
-      if (item.data === '[DONE]') { finished = true; continue }
+      if (item.data === '[DONE]') {
+        finished = true
+        continue
+      }
       const payload = JSON.parse(item.data) as Record<string, unknown>
       if (item.event === 'error') throw new Error(String(payload.message || '流式请求失败'))
       onFrame(payload)
@@ -64,7 +80,10 @@ export async function streamPost(
   try {
     while (true) {
       const { done, value } = await reader.read()
-      if (done) { dispatch(frames.feed(decoder.decode(), true)); break }
+      if (done) {
+        dispatch(frames.feed(decoder.decode(), true))
+        break
+      }
       dispatch(frames.feed(decoder.decode(value, { stream: true })))
     }
     if (!finished) throw new Error('连接提前结束，请重试或查看会话历史')

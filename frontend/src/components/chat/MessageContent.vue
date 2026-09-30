@@ -10,8 +10,12 @@ const container = ref<HTMLElement>()
 const popup = ref<HTMLElement>()
 const active = ref<Citation | null>(null)
 const position = ref({ left: '12px', top: '12px', width: '320px' })
-const html = computed(() => DOMPurify.sanitize(marked.parse(props.text, { async: false, breaks: true }) as string))
-function close() { active.value = null }
+const html = computed(() =>
+  DOMPurify.sanitize(marked.parse(props.text, { async: false, breaks: true }) as string),
+)
+function close() {
+  active.value = null
+}
 function decorate() {
   if (!props.decorate || !container.value) return
   const sources = new Set(props.citations.map((item) => item.n))
@@ -21,7 +25,9 @@ function decorate() {
   for (const node of nodes) {
     if (node.parentElement?.closest('code, pre, a, .cite')) continue
     const text = node.data
-    const matches = [...text.matchAll(/\[(\d+)\]/g)].filter((match) => sources.has(Number(match[1])))
+    const matches = [...text.matchAll(/\[(\d+)\]/g)].filter((match) =>
+      sources.has(Number(match[1])),
+    )
     if (!matches.length) continue
     const fragment = document.createDocumentFragment()
     let offset = 0
@@ -50,15 +56,32 @@ async function click(event: MouseEvent) {
   const rect = target.getBoundingClientRect()
   const width = Math.min(320, innerWidth - 24)
   const height = popup.value?.offsetHeight || 0
-  const top = rect.bottom + 6 + height > innerHeight - 12 ? Math.max(12, rect.top - height - 6) : rect.bottom + 6
-  position.value = { left: `${Math.max(12, Math.min(rect.left, innerWidth - width - 12))}px`, top: `${top}px`, width: `${width}px` }
+  const top =
+    rect.bottom + 6 + height > innerHeight - 12
+      ? Math.max(12, rect.top - height - 6)
+      : rect.bottom + 6
+  position.value = {
+    left: `${Math.max(12, Math.min(rect.left, innerWidth - width - 12))}px`,
+    top: `${top}px`,
+    width: `${width}px`,
+  }
 }
 function outside(event: MouseEvent) {
   const target = event.target as Element
   if (!popup.value?.contains(target) && !target.closest('[data-citation]')) close()
 }
-function escape(event: KeyboardEvent) { if (event.key === 'Escape') close() }
-watch([html, () => props.decorate, () => props.citations], async () => { close(); await nextTick(); decorate() }, { flush: 'post' })
+function escape(event: KeyboardEvent) {
+  if (event.key === 'Escape') close()
+}
+watch(
+  [html, () => props.decorate, () => props.citations],
+  async () => {
+    close()
+    await nextTick()
+    decorate()
+  },
+  { flush: 'post' },
+)
 onMounted(() => {
   decorate()
   document.addEventListener('click', outside)

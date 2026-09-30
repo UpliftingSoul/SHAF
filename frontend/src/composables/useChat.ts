@@ -7,15 +7,26 @@ import type { Action, ChatMessage, Citation, Conversation, Interruption } from '
 const SESSION_KEY = 'mewhelp_session_id'
 const CONV_KEY = 'mewhelp_conversation_id'
 const replayActions = new Map<string, Action[]>([
-  ['抱歉,这个问题我暂时没有查到确切信息,不敢乱答。建议您联系人工客服进一步确认,以免给您错误的指引。', [{ type: 'transfer_human' }]],
-  ['非常抱歉给您带来了不好的体验,我理解您的心情。您可以选择转接人工客服,或让我为您登记一张工单跟进处理。', [{ type: 'transfer_human' }, { type: 'create_ticket' }]],
+  [
+    '抱歉,这个问题我暂时没有查到确切信息,不敢乱答。建议您联系人工客服进一步确认,以免给您错误的指引。',
+    [{ type: 'transfer_human' }],
+  ],
+  [
+    '非常抱歉给您带来了不好的体验,我理解您的心情。您可以选择转接人工客服,或让我为您登记一张工单跟进处理。',
+    [{ type: 'transfer_human' }, { type: 'create_ticket' }],
+  ],
 ])
 
 export function useChat() {
   let userId = localStorage.getItem(SESSION_KEY)
-  if (!userId) { userId = crypto.randomUUID(); localStorage.setItem(SESSION_KEY, userId) }
+  if (!userId) {
+    userId = crypto.randomUUID()
+    localStorage.setItem(SESSION_KEY, userId)
+  }
   const storedId = Number(localStorage.getItem(CONV_KEY))
-  const conversationId = ref<number | null>(storedId > 0 && Number.isInteger(storedId) ? storedId : null)
+  const conversationId = ref<number | null>(
+    storedId > 0 && Number.isInteger(storedId) ? storedId : null,
+  )
   const conversations = ref<Conversation[]>([])
   const messages = ref<ChatMessage[]>([])
   const busy = ref(false)
@@ -32,16 +43,31 @@ export function useChat() {
     else localStorage.setItem(CONV_KEY, String(id))
   }
   function addMessage(role: 'user' | 'bot', text: string, question = '', plain = false) {
-    messages.value.push({ id: ++sequence, role, text, question, conversationId: conversationId.value,
-      tools: [], citations: [], actions: [], streaming: false, plain })
+    messages.value.push({
+      id: ++sequence,
+      role,
+      text,
+      question,
+      conversationId: conversationId.value,
+      tools: [],
+      citations: [],
+      actions: [],
+      streaming: false,
+      plain,
+    })
     return messages.value[messages.value.length - 1]!
   }
   async function refreshConversations() {
     const version = ++listGeneration
     try {
-      const result = await request<{ items: Conversation[] }>(`/api/conversations${query({ user_id: userId })}`, { signal: listController.signal })
+      const result = await request<{ items: Conversation[] }>(
+        `/api/conversations${query({ user_id: userId })}`,
+        { signal: listController.signal },
+      )
       if (version === listGeneration) conversations.value = result.items
-    } catch { /* 侧栏取数失败不打断当前聊天。 */ }
+    } catch {
+      /* 侧栏取数失败不打断当前聊天。 */
+    }
   }
   function reset() {
     generation++
@@ -50,7 +76,11 @@ export function useChat() {
     historyError.value = ''
     messages.value = []
   }
-  function newConversation() { reset(); storeId(null); void refreshConversations() }
+  function newConversation() {
+    reset()
+    storeId(null)
+    void refreshConversations()
+  }
 
   // 流和历史共享世代号：切换后旧异步回调不能写入新会话。
   async function run(path: string, body: unknown, question: string) {
@@ -83,7 +113,11 @@ export function useChat() {
         message.interrupt = undefined
       }
     } finally {
-      if (version === generation) { message.streaming = false; busy.value = false; void refreshConversations() }
+      if (version === generation) {
+        message.streaming = false
+        busy.value = false
+        void refreshConversations()
+      }
     }
   }
   async function send(text: string) {
@@ -91,13 +125,23 @@ export function useChat() {
     if (busy.value || !content) return
     historyError.value = ''
     addMessage('user', content)
-    await run('/api/chat', { user_id: userId, message: content, conversation_id: conversationId.value }, content)
+    await run(
+      '/api/chat',
+      { user_id: userId, message: content, conversation_id: conversationId.value },
+      content,
+    )
   }
   async function resume(source: ChatMessage, value: { order_id: string } | { confirmed: boolean }) {
-    if (busy.value || !source.interrupt || source.interrupt.decided || !source.conversationId) return
+    if (busy.value || !source.interrupt || source.interrupt.decided || !source.conversationId)
+      return
     source.interrupt.decided = true
     if ('order_id' in value) source.interrupt.picked = value.order_id
-    const text = 'order_id' in value ? `选择订单 ${value.order_id}` : value.confirmed ? '确认提交工单' : '取消建单'
+    const text =
+      'order_id' in value
+        ? `选择订单 ${value.order_id}`
+        : value.confirmed
+          ? '确认提交工单'
+          : '取消建单'
     addMessage('user', text)
     await run('/api/actions/resume', { conversation_id: source.conversationId, ...value }, text)
   }
@@ -110,7 +154,10 @@ export function useChat() {
     controller = current
     busy.value = true
     try {
-      const result = await request<{ items: { role: string; content: string }[] }>(`/api/conversations/${id}/messages`, { signal: current.signal })
+      const result = await request<{ items: { role: string; content: string }[] }>(
+        `/api/conversations/${id}/messages`,
+        { signal: current.signal },
+      )
       if (version !== generation) return
       let question = ''
       for (const item of result.items) {
@@ -118,16 +165,26 @@ export function useChat() {
         const role = item.role === 'user' ? 'user' : 'bot'
         if (role === 'user') question = item.content
         const message = addMessage(role, item.content, question)
-        message.actions = (replayActions.get(item.content.trim()) || []).map((action) => ({ ...action }))
+        message.actions = (replayActions.get(item.content.trim()) || []).map((action) => ({
+          ...action,
+        }))
       }
     } catch (cause) {
-      if (version === generation && !current.signal.aborted) historyError.value = (cause as Error).message
-    } finally { if (version === generation) busy.value = false; void refreshConversations() }
+      if (version === generation && !current.signal.aborted)
+        historyError.value = (cause as Error).message
+    } finally {
+      if (version === generation) busy.value = false
+      void refreshConversations()
+    }
   }
   function feedback(message: ChatMessage, rating: 'up' | 'down') {
     if (message.feedback || !message.conversationId) return
     message.feedback = rating
-    void post('/api/feedback', { conversation_id: message.conversationId, rating, question: message.question }).catch(() => {})
+    void post('/api/feedback', {
+      conversation_id: message.conversationId,
+      rating,
+      question: message.question,
+    }).catch(() => {})
   }
   function transfer(action: Action) {
     if (action.used) return
@@ -135,7 +192,25 @@ export function useChat() {
     addMessage('bot', '已转接人工客服', '', true)
     addMessage('bot', '您好,我是客服小猫,请问有什么可以帮您的', '', true)
   }
-  onScopeDispose(() => { generation++; listGeneration++; controller?.abort(); listController.abort() })
-  return { conversationId, conversations, messages, busy, historyError, send, resume, feedback,
-    refreshConversations, switchConversation, newConversation, addMessage, transfer }
+  onScopeDispose(() => {
+    generation++
+    listGeneration++
+    controller?.abort()
+    listController.abort()
+  })
+  return {
+    conversationId,
+    conversations,
+    messages,
+    busy,
+    historyError,
+    send,
+    resume,
+    feedback,
+    refreshConversations,
+    switchConversation,
+    newConversation,
+    addMessage,
+    transfer,
+  }
 }

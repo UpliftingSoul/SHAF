@@ -9,4 +9,10 @@ export interface JobSpec {
   returncode: number | null
   log?: string
 }
-export const jobLabels = { idle: '未运行', running: '运行中', ok: '完成', failed: '失败', stopped: '已停止' }
+export const jobLabels = {
+  idle: '未运行',
+  running: '运行中',
+  ok: '完成',
+  failed: '失败',
+  stopped: '已停止',
+}

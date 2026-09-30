@@ -1,6 +1,17 @@
 /** 聊天视图契约：与后端 SSE、动作接口及历史消息的实际字段一致。 */
-export interface Order { order_id: string; product?: string; status?: string; amount?: number }
-export interface Citation { n: number; question?: string; answer?: string; section_path?: string; content_type?: string }
+export interface Order {
+  order_id: string
+  product?: string
+  status?: string
+  amount?: number
+}
+export interface Citation {
+  n: number
+  question?: string
+  answer?: string
+  section_path?: string
+  content_type?: string
+}
 export interface Action {
   type: 'transfer_human' | 'create_ticket' | 'refund_form' | 'select_order'
   draft?: { order_id?: string }
@@ -29,4 +40,8 @@ export interface ChatMessage {
   error?: boolean
   plain?: boolean
 }
-export interface Conversation { id: number; preview: string; has_summary: boolean }
+export interface Conversation {
+  id: number
+  preview: string
+  has_summary: boolean
+}
