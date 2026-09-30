@@ -19,7 +19,7 @@ ch02-ch07 的工具层是"几个写死的内置工具":`registry.py` 是静态�
 **技术栈(定死):** MCP Server 用官方 Python SDK(Streamable HTTP);MCP Client 用 langchain-mcp-adapters 的 `MultiServerMCPClient`。
 
 **用户澄清决策(brainstorm 定稿):**
-- 架构选**方案 A**:进程内动态注册表 + 四段式执行管道,registry/infra 原位升级;否掉工具表落 MySQL(与现问现拿矛盾)和 LangGraph ToolNode 定制(黑盒不利教学)。
+- 架构选**方案 A**:进程内动态注册表 + 四段式执行管道,registry/infra 原位升级;否掉工具表落 MySQL(与现问现拿矛盾)和 LangGraph ToolNode 定制(不便检查执行过程)。
 - 验收 6 超时注入走**环境变量**:物流 MCP Server 读 `MOCK_DELAY_SECONDS` 延迟返回;主服务 `DEMO_TICKET_DELAY_SECONDS` 让 create_ticket 变慢——不埋魔法参数后门。
 
 **实现期用户拍板(Task 6 路由矛盾,实测分类器证据后决策):**
@@ -82,7 +82,7 @@ class ToolSpec:
 | 权限门 | `permission=="write"` 且 `confirmed!=True` → 直接拒绝(模型绕不过);确认令牌只能由 agent_tools 在 interrupt 确认后传入 | 权限拒绝 |
 | 执行 | `asyncio.wait_for`;超时默认内置 5s / MCP 10s,spec.timeout 覆盖(query_faq 30s);**重试只给 TimeoutError + 网络类异常(ConnectionError/httpx 传输错)**,指数退避 0.2s*attempt,默认 2 次;write 恒 0 次;业务空结果是正常返回,天然不重试 | 成功/失败/超时 |
 | 分诊 | 参数不合法(校验层拦)/ 查询落空(工具返回语义表达,如 query_faq sufficient=False,原样回灌)/ 真故障(异常→"工具暂时不可用:<类名>"如实回灌,不装没事) | — |
-| 格式化 | `json.dumps(..., ensure_ascii=False)`;`spec.format_result` 挑回答用得上的字段、内部枚举码翻人话(MCP 物流返回故意带 `status_code: "TRANSIT"` 类内部码,client 侧翻译——"不信 Server、我们侧治理"的教学点) | — |
+| 格式化 | `json.dumps(..., ensure_ascii=False)`;`spec.format_result` 挑回答用得上的字段、内部枚举码翻人话(MCP 物流返回故意带 `status_code: "TRANSIT"` 类内部码,client 侧翻译——"不信 Server、我们侧治理"的治理边界) | — |
 
 **审计**:每次调用(含被拦的)构造记录 → `repository.insert_tool_audit(conversation_id, tool_call_id, tool_name, tool_source, mcp_server, arguments, result_summary(截500字), status, error_message, retry_count(实际值), duration_ms)`;**try/except 包死,写失败只 log 不拦执行**;表无外键(DDL 已定稿 `sql/ch08-ddl.sql`)。
 

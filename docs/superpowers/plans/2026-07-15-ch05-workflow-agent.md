@@ -22,7 +22,7 @@
 
 ## 权威来源
 - spec:`docs/superpowers/specs/2026-07-15-ch05-workflow-agent-design.md`
-- 章节:`mewhelp-course/ch05-workflow-agent/README.md`
+- 章节:`docs/superpowers/specs/2026-07-15-ch05-workflow-agent-design.md`
 
 ---
 
@@ -164,7 +164,7 @@ git commit -m "feat(ch05): 加 LangGraph 依赖+配置,红线冒烟钉死流式�
 
 ## Task 2: 祛魅热身——手写裸 Agent 循环(不用框架)
 
-**目的:** req#1 祛魅。产出是教学脚本,非单测代码 → 用运行验证代替 TDD。
+**目的:** req#1 祛魅。产出是独立演示脚本,非单测代码 → 用运行验证代替 TDD。
 
 **Files:**
 - Create: `scripts/bare_agent_loop.py`

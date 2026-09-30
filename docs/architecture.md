@@ -1,6 +1,6 @@
 # SHAF 架构手册
 
-本手册面向开发者与调试人员，说明当前源码职责和数据链路。项目使用 Vue 3 前端与 FastAPI 纯 API 后端；课程历史 spec/plan 是背景材料，发生差异时以源码、本阶段规划和用户确认的云端容器约定为准。
+本手册面向开发者与调试人员，说明当前源码职责和数据链路。项目使用 Vue 3 前端与 FastAPI 纯 API 后端；历史 spec/plan 是背景材料，发生差异时以源码、本阶段规划和用户确认的云端容器约定为准。
 
 ## 1. 系统边界
 
@@ -36,7 +36,7 @@ flowchart LR
 
 聊天和续跑使用 POST fetch 流。前端处理增量、工具、引用、建议动作、中断和完成事件，兼容 UTF-8/CRLF 分块，意外断流显示错误。切会话或卸载会取消请求，并隔离迟到结果。
 
-只读工具允许受控重试；写工具不自动重试。建工单可触发用户确认中断，取消明确传 `confirmed=false`。退款工具的建议转为用户表单，订单号只读，用户选择固定退款原因后才通过 actions API 写入。人工转接仍是教程的模拟交互，订单及物流仍保留原 mock 实现。
+只读工具允许受控重试；写工具不自动重试。建工单可触发用户确认中断，取消明确传 `confirmed=false`。退款工具的建议转为用户表单，订单号只读，用户选择固定退款原因后才通过 actions API 写入。人工转接仍是模拟交互，订单及物流仍保留原 mock 实现。
 
 ### 2.3 RAG 与知识写回
 
@@ -95,7 +95,7 @@ Langfuse 提供 trace 与意图成本，评估表提供趋势，磁盘 JSON 提�
 | `DEPLOY.md` | 当前分离架构的容器边界、配置、持久化、启动与尚需云端验收的前置。 |
 | `Dockerfile.backend` | Python/uv 后端镜像，保留 Linux 作业工具，单 worker 启动 FastAPI。 |
 | `Makefile` | 离线与服务管理目标；页面作业复用其中的白名单目标，依赖 Ubuntu/POSIX。 |
-| `README.md` | 项目定位、技术栈、本地开发入口、课程能力与导航。 |
+| `README.md` | 项目定位、技术栈、本地开发入口、功能模块与导航。 |
 | `docker-compose.app.yml` | Vue/Nginx 与 FastAPI 两个应用容器；与原基础设施配置合并使用。 |
 | `docker-compose.langfuse.yml` | 独立 Langfuse web/worker、Postgres、ClickHouse、Redis 与对象存储栈。 |
 | `docker-compose.yml` | MySQL、Milvus Standalone、etcd、MinIO 及原命名的数据卷、初始化 SQL。 |
@@ -114,7 +114,7 @@ Langfuse 提供 trace 与意图成本，评估表提供趋势，磁盘 JSON 提�
 | `app/api/agent.py` | 非流式 Agent 入口，返回答案、工具轨迹及建议动作，复用图运行时。 |
 | `app/api/chat.py` | 用户会话流式聊天入口，处理 graph 事件、引用、操作卡、中断与 SSE 错误。 |
 | `app/api/conversations.py` | 会话列表、历史消息与会话定位，供聊天侧栏和恢复使用。 |
-| `app/api/extract.py` | 结构化信息提取教学接口，使用提取 schema 和模型客户端。 |
+| `app/api/extract.py` | 结构化信息提取接口，使用提取 schema 和模型客户端。 |
 | `app/api/feedback.py` | 消息反馈落库；无帮助反馈进入待补知识问题池。 |
 | `app/api/jobs.py` | 白名单作业发起、查询日志与停止入口，不接受任意命令。 |
 | `app/api/kb.py` | 知识概览、切块预览、手工入库、向量化、检索与挖掘待审操作。 |
@@ -149,7 +149,7 @@ Langfuse 提供 trace 与意图成本，评估表提供趋势，磁盘 JSON 提�
 | `app/core/memory.py` | 会话三层上下文与近期滑窗、历史压缩、摘要段注入。 |
 | `app/core/model_guard.py` | 模型本地规格、上下文与配置合法性检查。 |
 | `app/core/observability.py` | Langfuse 接入及 trace/用量上下文，未配置时允许框架继续运行。 |
-| `app/core/prompts.py` | 各课程与运行链路提示词模板，包含在线 Agent、分类、自检及总结约束。 |
+| `app/core/prompts.py` | 各模块与运行链路提示词模板，包含在线 Agent、分类、自检及总结约束。 |
 | `app/core/query_understanding.py` | 检索查询改写与多子句拆分，保留型号等硬关键词。 |
 | `app/core/read_notes.py` | 生成并校验报表读图注，避免说明文本引入不存在的数字。 |
 | `app/core/rerank.py` | 重排上游请求与精排结果加工。 |
@@ -291,8 +291,8 @@ Langfuse 提供 trace 与意图成本，评估表提供趋势，磁盘 JSON 提�
 | `scripts/cost_by_intent.py` | ch09 Cost Control：从 Langfuse 按意图汇总近 N 天的 token 消耗，定位最耗资源的业务意图。 |
 | `scripts/demo_agent.sh` | 非流式 Agent 调用演示，展示工具调用返回。 |
 | `scripts/demo_ch08_promotions.py.txt` | 工具扩展示例文本，不被运行时自动扫描；用于人工参考。 |
-| `scripts/demo_chat.sh` | 原纯聊天接口演示脚本；课程遗留会话参数需结合当前 schema 使用。 |
-| `scripts/dev.sh` | 教程本机多进程启动和依赖预检；当前约定下不作为云部署入口。 |
+| `scripts/demo_chat.sh` | 原纯聊天接口演示脚本；历史会话参数需结合当前 schema 使用。 |
+| `scripts/dev.sh` | 本机多进程启动和依赖预检；当前约定下不作为云部署入口。 |
 | `scripts/eval_agent.py` | 标注样例评估:核对 glm-5.2 是否按预期选中工具,并观察 query_faq 的关键词与漏召回。 |
 | `scripts/eval_ch04.py` | 四策略(vector/bm25/hybrid/hybrid_rerank)分桶评估。需 Milvus Standalone + 已建库 + 上游可调通。 |
 | `scripts/eval_ch05.py` | ch05 五验收端到端评估。需全服务起(mysql/milvus/上游/app 新代码)。 |
@@ -340,12 +340,12 @@ Langfuse 提供 trace 与意图成本，评估表提供趋势，磁盘 JSON 提�
 | `data/ch10/reports/export_report.json` | ONNX 导出与 torch 标签一致性校验产物。JSON 供 API 读取。 |
 | `data/ch10/reports/golden_report.json` | 预标黄金样例通过率产物。JSON 供 API 读取。 |
 | `data/ch10/reports/threshold_scan.json` | 固定验证集分数上的候选阈值扫描产物。JSON 供 API 读取。 |
-| `data/kb/after-sales-manual.md` | 售后处理、工单和维修知识源。教学文本可能含冲突条款，保留原内容以检验检索与关键条款处理。 |
-| `data/kb/billing-shipping.md` | 发票、配送与运费知识源。教学文本可能含冲突条款，保留原内容以检验检索与关键条款处理。 |
-| `data/kb/member-benefits.md` | 会员权益与积分知识源。教学文本可能含冲突条款，保留原内容以检验检索与关键条款处理。 |
-| `data/kb/product-faq.md` | 商品常见问答知识源。教学文本可能含冲突条款，保留原内容以检验检索与关键条款处理。 |
-| `data/kb/product-specs.md` | 商品型号、参数和适配知识源。教学文本可能含冲突条款，保留原内容以检验检索与关键条款处理。 |
-| `data/kb/returns-policy.md` | 退换货规则与关键条款知识源。教学文本可能含冲突条款，保留原内容以检验检索与关键条款处理。 |
+| `data/kb/after-sales-manual.md` | 售后处理、工单和维修知识源。知识文本可能含冲突条款，保留原内容以检验检索与关键条款处理。 |
+| `data/kb/billing-shipping.md` | 发票、配送与运费知识源。知识文本可能含冲突条款，保留原内容以检验检索与关键条款处理。 |
+| `data/kb/member-benefits.md` | 会员权益与积分知识源。知识文本可能含冲突条款，保留原内容以检验检索与关键条款处理。 |
+| `data/kb/product-faq.md` | 商品常见问答知识源。知识文本可能含冲突条款，保留原内容以检验检索与关键条款处理。 |
+| `data/kb/product-specs.md` | 商品型号、参数和适配知识源。知识文本可能含冲突条款，保留原内容以检验检索与关键条款处理。 |
+| `data/kb/returns-policy.md` | 退换货规则与关键条款知识源。知识文本可能含冲突条款，保留原内容以检验检索与关键条款处理。 |
 | `sql/ch02-ddl.sql` | FAQ、会话、消息、工单等初始业务表。已有数据库需按实际版本迁移，不能假设首次初始化再次执行。 |
 | `sql/ch02-seed.sql` | 幂等灌入 FAQ 演示知识。已有数据库需按实际版本迁移，不能假设首次初始化再次执行。 |
 | `sql/ch03-ddl.sql` | 知识块与问答挖掘暂存区表。已有数据库需按实际版本迁移，不能假设首次初始化再次执行。 |

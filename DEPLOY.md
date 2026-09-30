@@ -18,7 +18,7 @@
 | `frontend/nginx.conf` | SPA 路由、哈希资源缓存与 SSE 代理 |
 | `Dockerfile.backend` | Python 3.12、uv、make/bash/curl 和 FastAPI 运行环境 |
 | `docker-compose.app.yml` | 两个应用容器；合并现有基础设施 Compose 使用 |
-| `docker-compose.yml` | 原有 MySQL、Milvus、etcd、MinIO 教学基础设施配置 |
+| `docker-compose.yml` | 原有 MySQL、Milvus、etcd、MinIO 基础设施配置 |
 | `docker-compose.langfuse.yml` | 原有独立 Langfuse 观测栈 |
 
 这些是应用容器基础配置，不是已经验收的完整云端部署。当前工作机没有 Docker，镜像构建、Nginx 语法检查及真实容器连通测试尚未执行。
@@ -41,7 +41,7 @@
 
 容器内的 `localhost` 指当前容器自身，不能代替其他服务名。开发机调用云端 API 时，Vite 的 `API_PROXY_TARGET` 则要填开发机能访问的地址。
 
-现有基础设施文件保留原数据库、卷名和教学凭据，避免无意迁移数据。正式云部署时需要配置实际业务账号、密码、内网端口、访问控制和 HTTPS；当前 API 没有登录鉴权，后台页面能够触发写入及计算作业，访问边界须由部署负责人落实。
+现有基础设施文件保留原数据库、卷名和示例凭据，避免无意迁移数据。正式云部署时需要配置实际业务账号、密码、内网端口、访问控制和 HTTPS；当前 API 没有登录鉴权，后台页面能够触发写入及计算作业，访问边界须由部署负责人落实。
 
 ## 4. Ubuntu 应用容器启动步骤
 
@@ -72,7 +72,7 @@ MySQL、Milvus、etcd、MinIO 和 Langfuse 各自保留数据卷。备份和恢�
 
 原 `seed-conv` / `kb-reset` 等目标使用 Docker CLI，原 `classifier-up/down` 管理同一执行环境的进程。**它们不会自动管理外部独立服务容器**。本阶段保留这些接口和页面按钮，未引入 Docker socket 或改变服务编排权限；独立容器的启停、数据初始化和训练资源安排需要在后续部署阶段统一对接。应用镜像中的 make 不等于已经具备所有目标的运行前置。
 
-`make dev`、`make mcp-up`、`make classifier-up` 等教程本机多进程启动方式，不作为本项目云端部署流程。
+`make dev`、`make mcp-up`、`make classifier-up` 等本机多进程启动方式，不作为本项目云端部署流程。
 
 ## 6. 验收清单
 

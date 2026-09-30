@@ -57,7 +57,7 @@ State 全量与调模型精简版**各走各的**:摘要更新只影响下一轮
 
 ## 4. 上下文拼装(`app/core/memory.py` 升级 + 三处消费点)
 
-`memory.py` 从 ch02 遗留升级为本章核心模块(`SessionStore` 是 ch02 教学产物、仅测试引用,保留不动;`trim_history` 演进为 `build_window` 的兜底段):
+`memory.py` 从 ch02 遗留升级为本章核心模块(`SessionStore` 是 ch02 早期实现、仅测试引用,保留不动;`trim_history` 演进为 `build_window` 的兜底段):
 
 ```python
 def build_window(messages, summary_upto_msg_id, max_tokens) -> list[BaseMessage]:
