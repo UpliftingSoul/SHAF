@@ -1,6 +1,6 @@
 # SHAF 个人部署手册
 
-目标：在 Ubuntu 云服务器运行完整项目，通过笔记本浏览器测试、展示各模块。配置按 x86_64、8 核 CPU、16GB 内存、80GB 系统盘安排，无独立数据盘；训练和大型评估串行执行。
+目标：在 Ubuntu 云服务器运行完整项目，通过笔记本浏览器测试、展示各模块。配置按 x86_64、8 核 CPU、16GB 内存、80GB 系统盘 + 100GB 数据盘安排；训练和大型评估串行执行。
 
 **使用标准 Nginx，1Panel 管理容器、文件、日志和计划任务。** 不安装 OpenResty，不使用面板“网站”或“运行环境”启动项目。第 1–8 节是个人使用主线；域名、HTTPS 与正式上线内容放在第 10 节选读。
 
@@ -32,20 +32,58 @@ etcd、MinIO 由 Compose 自动连接，无需操作控制台，与图片上传�
 
 ## 2. 准备服务器与 1Panel
 
-### 2.1 系统盘与网络
+### 2.1 磁盘与网络
 
-使用已安装 Ubuntu 的系统盘即可，不需要格式化、额外挂载或迁移 Docker 存储。项目统一放在 `/opt/SHAF`，数据库、模型和日志保存在该目录的子目录中。
+80GB 系统盘放 Ubuntu、1Panel、Docker 镜像和构建缓存；100GB 数据盘挂载到 `/mnt/shaf-data`，项目放 `/mnt/shaf-data/SHAF`，数据库、模型、缓存、日志和备份保存在项目子目录中。无需迁移 Docker 默认存储。
+
+**先确认数据盘是 SSD 或性能合适的云盘。** Milvus 要求 SSD，etcd 对写入延迟敏感；不能只凭“高速硬盘”宣传判断。[Milvus 前置要求](https://milvus.io/docs/v2.6.x/prerequisite-docker.md)
 
 FinalShell **服务器终端**确认一次：
 
 ```bash
 uname -m
+lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINTS,UUID
 df -h /
 ```
 
-架构应为 `x86_64`；80GB 是整块系统盘容量，可用空间会小于该值。CPU 指令集核对[Milvus 前置要求](https://milvus.io/docs/v2.6.x/prerequisite-docker.md)。
+架构应为 `x86_64`；80GB/100GB 是盘容量，可用空间更小，显示单位也可能不同。6248R 的型号支持所需 SIMD，仍需用 `lscpu` 核对虚拟机实际暴露的指令集。
+
+**数据盘一次性初始化（在部署容器前完成）：**
+
+可先完成第 2.2 节的面板与工具安装，再回本节初始化；在第 2.3 节保护配置完成前，不启动项目容器。
+
+1. 云控制台确认新增 100GB 数据盘已关联本实例；结合容量、挂载点和盘标识，识别它与挂载 `/` 的系统盘。设备可能是 `/dev/vdb` 或 NVMe 名称，不能照抄别人的盘符。
+2. 若数据盘已经有文件系统或数据，跳过格式化，核对已有内容后挂载。只有确认是全新空盘才初始化为 ext4；按服务商 Ubuntu 初始化指引执行，通用 Linux 步骤可参考[云盘初始化说明](https://help.aliyun.com/zh/ecs/user-guide/initialize-a-data-disk-whose-size-does-not-exceed-2-tib-on-a-linux-instance)。**格式化会清空目标盘，不能操作系统盘。** 不熟悉盘符时，由远程助手核对后执行。
+3. 格式化后用 `lsblk -f` 获取目标文件系统的 UUID，创建挂载目录并备份配置：
+
+```bash
+sudo mkdir -p /mnt/shaf-data
+sudo cp -a /etc/fstab /etc/fstab.shaf-before
+lsblk -f
+```
+
+用 1Panel“文件”或 VSCode 远程编辑 `/etc/fstab`（需管理员权限），**保留已有行**，新增下面一行。面板尚未安装时可用 `sudo nano /etc/fstab`；把 `实际文件系统UUID` 替换为上一步结果，不能原样保存：
+
+```text
+UUID=实际文件系统UUID /mnt/shaf-data ext4 defaults,nofail,x-systemd.device-timeout=30s 0 2
+```
+
+`nofail` 使盘异常时系统仍能启动供 SSH 排查；第 2.3 节会要求 Docker 等待并检查数据盘，不能省略。若云厂商已经配置自动挂载，修改原条目即可，不添加重复挂载。
+
+4. 服务器终端执行并检查：
+
+```bash
+sudo systemctl daemon-reload
+sudo mount -a
+findmnt --mountpoint /mnt/shaf-data
+df -h / /mnt/shaf-data
+```
+
+`mount -a` 不应报错，`findmnt` 必须显示预期数据盘/文件系统。只有同名目录、不是真实挂载时不能继续。**首次部署在云控制台重启一次服务器**，重新 SSH 登录并重复挂载检查，验证开机自动挂载后再启动项目。
 
 云安全组/轻量服务器防火墙只开放 SSH 和面板端口给自己的公网 IP（单个 IPv4 写成 `你的IP/32`）。SSH 主方案不用开 8080；数据库、后端、Milvus、MCP、分类器端口均不放行。出站需能访问模型 API、Langfuse、GitHub、镜像及依赖下载源。
+
+本次服务商要求备案后开放公网 80/443，**不影响 SSH 隧道主方案**；Nginx 的容器内部 80 无需公网放行。公网 IP + 8080 仅在服务商明确允许后使用，不以换端口绕过其规定。调用云 API 的出站 HTTPS 与开放公网入站 443 是不同方向。
 
 ### 2.2 面板与基础工具
 
@@ -57,12 +95,30 @@ df -h /
 
 ```bash
 sudo apt update
-sudo apt install -y git openssl util-linux
+sudo apt install -y git openssl util-linux nano
 sudo docker version
 sudo docker compose version
 ```
 
-宿主不安装 Python、uv、Node、conda 或 MySQL，镜像包含所需环境。系统、面板、Docker 镜像/构建缓存和项目数据共用这块 80GB 系统盘；首次构建及训练后查看面板磁盘监控和“容器 → 概览”。备份也占空间，下载到笔记本后按需移除旧备份；磁盘接近满时先排查占用，不删除数据库目录或正在使用的卷。
+宿主不安装 Python、uv、Node、conda 或 MySQL，镜像包含所需环境。两块盘分别看占用：系统盘仍承担 Docker 镜像/构建缓存，数据盘承担项目运行数据。备份下载到笔记本后按需移除旧副本；磁盘接近满时先排查占用，不删除数据库目录或正在使用的卷。
+
+### 2.3 Docker 启动前检查数据盘
+
+本次新服务器使用普通 systemd Docker 服务。在项目容器尚未启动时，服务器终端执行下面的一次性配置；`[Unit]` 要求启动前挂载数据盘，并确认路径真的是挂载点：
+
+```bash
+sudo mkdir -p /etc/systemd/system/docker.service.d
+sudo tee /etc/systemd/system/docker.service.d/shaf-storage.conf > /dev/null <<'EOF'
+[Unit]
+RequiresMountsFor=/mnt/shaf-data
+AssertPathIsMountPoint=/mnt/shaf-data
+EOF
+sudo systemctl daemon-reload
+sudo systemctl restart docker
+sudo systemctl status docker --no-pager
+```
+
+应为 `active (running)`；可用 `sudo systemctl cat docker` 确认上述配置已加载。数据盘未挂载时先排查磁盘，**不删这项保护或在空目录启动项目**。此配置作用于整台机器的 Docker；如果已有其他容器，先安排停机再重启 Docker。日常修复只更新应用容器，不重复这一步。[systemd 挂载依赖](https://www.freedesktop.org/software/systemd/man/systemd.unit.html#RequiresMountsFor=)
 
 ## 3. 源码与配置就位
 
@@ -71,18 +127,18 @@ sudo docker compose version
 首次部署先在服务器终端创建目录，允许当前 SSH 用户写入：
 
 ```bash
-sudo mkdir -p /opt/SHAF
-sudo chown "$(id -un):$(id -gn)" /opt/SHAF
+mountpoint -q /mnt/shaf-data && sudo mkdir -p /mnt/shaf-data/SHAF
+sudo chown "$(id -un):$(id -gn)" /mnt/shaf-data/SHAF
 ```
 
-若已经按其他路径部署，继续沿用原目录，并统一替换本手册中的 `/opt/SHAF`。**不要仅换路径重新启动**：相对挂载会指向新的数据目录，看起来像空库；迁移应按运维手册备份/恢复。
+首条命令失败时先解决挂载，不继续操作。若已经按其他路径部署，继续沿用原目录，并统一替换本手册中的 `/mnt/shaf-data/SHAF`；第 2.3 节的保护适用于数据盘主方案。**不要仅换路径重新启动**：相对挂载会指向新的数据目录，看起来像空库；迁移应按运维手册备份/恢复。
 
-**可视化方式：** 笔记本登录 GitHub 私有仓库下载 ZIP；在 1Panel“文件”上传、解压，整理为 `/opt/SHAF`。确认此目录直接包含 `app/`、`frontend/`、`sql/`、`docker-compose.prod.yml`，不多套一层目录。FinalShell 上传也可，不传 `.venv/`、`node_modules/`、密钥或历史 Git 备份；记录下载的提交号。
+**可视化方式：** 笔记本登录 GitHub 私有仓库下载 ZIP；在 1Panel“文件”上传、解压，整理为 `/mnt/shaf-data/SHAF`。确认此目录直接包含 `app/`、`frontend/`、`sql/`、`docker-compose.prod.yml`，不多套一层目录。FinalShell 上传也可，不传 `.venv/`、`node_modules/`、密钥或历史 Git 备份；记录下载的提交号。
 
 **Git 方式：** 按第 9 节添加服务器只读 Deploy key 后，在服务器终端执行：
 
 ```bash
-git clone git@github.com:UpliftingSoul/SHAF.git /opt/SHAF
+git clone git@github.com:UpliftingSoul/SHAF.git /mnt/shaf-data/SHAF
 ```
 
 目标目录应不存在或为空，当前用户需有写权限。新终端先回项目根目录。知识源和评估材料在仓库中；分类语料、dataset、model、ONNX 不在 Git 中。已有产物上传完整 `data/ch10/`，没有则按第 7 节生成；已有 reports 不代表新服务器通过验收。
@@ -133,7 +189,8 @@ EU 如上；US 用 `https://us.cloud.langfuse.com`，JP 用 `https://jp.cloud.la
 以下在 **FinalShell 服务器终端**执行，构建期间保持连接。`dc` 是本手册 Compose 简写，新终端重新定义：
 
 ```bash
-cd /opt/SHAF
+mountpoint -q /mnt/shaf-data || exit 1
+cd /mnt/shaf-data/SHAF
 mkdir -p log volumes model-cache backups
 chmod 600 .env
 dc() { sudo docker compose -f docker-compose.prod.yml "$@"; }
@@ -149,7 +206,7 @@ dc --profile classifier build classifier
 ### 4.2 1Panel 原路径接入
 
 1. **容器 → 编排 → 创建编排**，选择“路径选择”。
-2. 选择 `/opt/SHAF/docker-compose.prod.yml`，项目名保持 `shaf`。
+2. 选择 `/mnt/shaf-data/SHAF/docker-compose.prod.yml`，项目名保持 `shaf`。
 3. 检查环境变量栏已载入同目录 `.env` 的完整内容；保存会写回文件，**不能留空或删 key**。
 4. 不勾“强制拉取镜像”，提交后看任务日志，等待完成。
 5. `shaf` 详情中应有八个基础服务运行，有健康检查的服务最终 healthy；classifier 先不启动。
