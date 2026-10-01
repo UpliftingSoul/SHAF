@@ -1,126 +1,114 @@
-# SHAF 部署手册
+# SHAF 个人部署手册
 
-适用：单台 x86_64 Ubuntu 云服务器，8 核 CPU、16GB 内存、80GB 数据盘，低并发开发验收。项目和全部服务运行在服务器；笔记本使用 FinalShell / VSCode 远程操作。以下命令均在**服务器终端**执行，另有标注的除外。
+目标：在 Ubuntu 云服务器运行完整项目，通过笔记本浏览器测试、展示各模块。配置按 x86_64、8 核 CPU、16GB 内存、80GB 数据盘安排；训练和大型评估串行执行。
 
-入口为 `docker-compose.prod.yml`。配套：[运维指导](docs/operations.md)、[网站使用与测试](docs/testing-guide.md)、[Milvus 云端备用规划](docs/milvus-cloud-migration-plan.md)、[架构手册](docs/architecture.md)。已核对源码与配置，尚未在真实 Ubuntu 构建镜像和验收外部服务；部署时逐节完成验收。
+**使用标准 Nginx，1Panel 管理容器、文件、日志和计划任务。** 不安装 OpenResty，不使用面板“网站”或“运行环境”启动项目。第 1–8 节是个人使用主线；域名、HTTPS 与正式上线内容放在第 10 节选读。
 
-## 1. 服务组成
+入口：`docker-compose.prod.yml`。配套：[运维](docs/operations.md)、[网站使用与测试](docs/testing-guide.md)、[Milvus 云端备用规划](docs/milvus-cloud-migration-plan.md)、[架构](docs/architecture.md)。面板步骤依据 1Panel V2 文档和 v2.3.2 源码；尚未在真实 1Panel/Ubuntu 上机验收，部署时逐节确认。
+
+## 1. 访问方式与服务
+
+| 方式 | 笔记本浏览器地址 | 服务器设置 |
+|---|---|---|
+| **主选：SSH 隧道** | `http://127.0.0.1:8080` | 前端只监听服务器回环地址，不开放网页公网端口 |
+| 可选：公网 IP | `http://服务器公网IP:8080` | 前端监听所有 IPv4 地址；云防火墙仅允许本人/展示对象 IP |
+
+SSH 打开的是服务器终端，并不提供图形浏览器。网页在**笔记本浏览器**打开，代码、数据库和计算全部在服务器；两种方式都不需要域名。
+
+链路：浏览器 → **前端 Nginx**（Vue 页面、`/api` 转发）→ **FastAPI** → 数据库/模型/MCP。公网 IP 方式也直接访问这个 Nginx，没有外层代理。
 
 | 服务 | 职责 | 容器内端口 |
 |---|---|---|
-| frontend | Nginx 提供 Vue 页面，代理 `/api/`、SSE | 80 |
-| backend | FastAPI、Agent 图、网页作业；含 CPU 训练依赖 | 8000 |
-| mysql | 会话、工单、知识原文、审核、评估、分类记录 | 3306 |
-| milvus-standalone | 1024 维向量 + 中文 BM25 混合检索 | 19530 / 9091 |
-| etcd | Milvus 元数据与协调 | 2379 |
-| minio | Milvus 数据、索引对象存储 | 9000 / 9001 |
+| frontend | 标准 Nginx：Vue 页面、API 与聊天流式转发 | 80 |
+| backend | FastAPI、Agent 工作流、后台作业及 CPU 训练依赖 | 8000 |
+| mysql | 会话、工单、知识原文、审核、评估与分类记录 | 3306 |
+| milvus-standalone | 1024 维向量、中文 BM25 与混合检索 | 19530 / 9091 |
+| etcd / minio | Milvus 元数据、数据/索引对象存储 | 2379 / 9000、9001 |
 | mcp-logistics / mcp-aftersales | 物流、售后工具 | 8101 / 8102 |
-| classifier | ONNX CPU 旁路分类；有模型后启动 | 8110 |
-| Langfuse Cloud | 云端 trace，无本机容器 | HTTPS |
+| classifier | ONNX CPU 分类；有模型后再启动 | 8110 |
+| Langfuse Cloud | 云端调用链查看，无本机容器 | HTTPS |
 
-MinIO、etcd 是这套 Standalone 配置的配套服务，由 Compose 自动连接；与网页图片上传、MCP 无关，无需单独操作控制台。云端 Milvus 可省去这三个本机容器，但需按备用规划加鉴权和迁移索引。
+etcd、MinIO 由 Compose 自动连接，无需操作控制台，与图片上传或 MCP 无关。保留它们是本次 Standalone 方案的一部分。服务连接、版本和初始化由项目编排统一定义，**不在应用商店另装一套 MySQL/Milvus**。
 
-16GB 是整机资源，不保证所有任务同时满负荷运行。训练、导出、大型评估串行执行并观察内存；LoRA 仍需完整基础模型计算。购机优先 x86_64、SSD，核对 CPU 指令集及[Milvus 官方前置要求](https://milvus.io/docs/v2.6.x/prerequisite-docker.md)。
-
-## 2. 准备服务器
+## 2. 准备服务器与 1Panel
 
 ### 2.1 数据盘与网络
 
-在云控制台完成数据盘挂载和开机自动挂载。本手册假定挂载点 `/mnt/shaf-data`；实际路径不同则统一替换。宝塔可辅助查看磁盘，不格式化已有数据盘。
+在云控制台按该厂商 Ubuntu 指导完成数据盘初始化、挂载和开机自动挂载。本手册使用 `/mnt/shaf-data`，实际路径不同则统一替换；已有数据的盘不要重新格式化。
+
+FinalShell **服务器终端**确认一次：
 
 ```bash
 uname -m
-free -h
-lsblk -f
 findmnt /mnt/shaf-data
 df -h / /mnt/shaf-data
 ```
 
-验收：`x86_64`、数据盘实际挂载、容量符合预期。`findmnt` 无输出时先挂载，不能只创建同名目录继续部署。
+应为 `x86_64`、数据盘已实际挂载。`findmnt` 无输出时先解决挂载，不能只创建同名目录继续。CPU 指令集核对[Milvus 前置要求](https://milvus.io/docs/v2.6.x/prerequisite-docker.md)。
 
-首次只开放 SSH 给自己的 IP，用隧道验收；公网入口之后再开放 80/443。不开放数据库、Milvus、MCP、分类器、后端端口。允许出站访问模型 API、Langfuse、GitHub、镜像仓库和依赖下载源。
+云安全组/轻量服务器防火墙只开放 SSH 和面板端口给自己的公网 IP（单个 IPv4 写成 `你的IP/32`）。SSH 主方案不用开 8080；数据库、后端、Milvus、MCP、分类器端口均不放行。出站需能访问模型 API、Langfuse、GitHub、镜像及依赖下载源。
 
-### 2.2 Docker 与基础工具
+### 2.2 面板与基础工具
 
-先检查 `sudo docker version`、`sudo docker compose version`。宝塔已安装且正常则复用，只补 git/openssl 等工具。未安装时，支持的 Ubuntu 系统按下列顺序设置官方 apt 源并安装；与[官方安装说明](https://docs.docker.com/engine/install/ubuntu/)核对，遇到旧版包冲突先处理，不盲目卸载宝塔现有服务：
+已有 1Panel/Docker 时跳过安装。新服务器按 [1Panel V2 官方在线安装](https://1panel.cn/docs/v2/installation/online_installation/)执行，社区版即可；当前安装说明通过 `PANEL_INSTALL_DOCKER=y` 显式启用 Docker 安装。已有 Docker 则复用，不覆盖配置。
+
+在笔记本浏览器访问安装结果给出的“IP:面板端口/安全入口”。主要使用 **容器、文件、计划任务**，资源在概览/监控查看。菜单名称可能随补丁调整，按功能定位即可。
+
+服务器终端补齐小工具，确认 Compose 可用：
 
 ```bash
 sudo apt update
-sudo apt install -y ca-certificates curl git openssl util-linux
-sudo install -d -m 0755 /etc/apt/keyrings
-sudo curl -fsSL -o /etc/apt/keyrings/docker.asc https://download.docker.com/linux/ubuntu/gpg
-sudo chmod 0644 /etc/apt/keyrings/docker.asc
-source /etc/os-release
-printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu %s stable\n' \
-  "$(dpkg --print-architecture)" "${UBUNTU_CODENAME:-$VERSION_CODENAME}" | sudo tee /etc/apt/sources.list.d/shaf-docker.list
-sudo apt update
-sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-sudo systemctl enable --now docker
-sudo docker run --rm hello-world
+sudo apt install -y git openssl util-linux
+sudo docker version
 sudo docker compose version
 ```
 
-宿主无需安装 Python、uv、Node、conda 或 MySQL，镜像包含所需环境。以下采用 `sudo docker`。
+宿主不安装 Python、uv、Node、conda 或 MySQL，镜像包含所需环境。项目数据放数据盘，但镜像/构建缓存也占空间；首次构建后在“容器 → 概览”看磁盘占用。系统盘不足再迁 Docker 存储，不列为必做；Engine 29+ 的 containerd 存储与 `data-root` 分开，按[官方存储说明](https://docs.docker.com/engine/daemon/#configure-the-data-directory-location)处理。
 
-镜像和构建缓存仍可能占系统盘。如需移到数据盘，在首次拉镜像前按[官方存储配置](https://docs.docker.com/engine/daemon/#configure-the-data-directory-location)设置 Docker `data-root`，例如 `/mnt/shaf-data/docker`。Docker Engine 29+ 新安装的 containerd 镜像存储需另外设置 `/etc/containerd/config.toml` 的 `root`；只改 `data-root` 不会移动这部分。合并已有宝塔配置，不覆盖原文件；有现存容器时不能按空机方式直接迁目录。
+## 3. 源码与配置就位
 
-## 3. 取得代码与产物
+### 3.1 取得源码：任选一种
 
-### 3.1 私有仓库
+**可视化方式：** 笔记本登录 GitHub 私有仓库下载 ZIP；在 1Panel“文件”上传、解压，整理为 `/mnt/shaf-data/SHAF`。确认此目录直接包含 `app/`、`frontend/`、`sql/`、`docker-compose.prod.yml`，不多套一层目录。FinalShell 上传也可，不传 `.venv/`、`node_modules/`、密钥或历史 Git 备份；记录下载的提交号。
 
-推荐服务器只读部署密钥，不把个人 token 写进克隆 URL：
-
-```bash
-ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -C shaf-server
-cat ~/.ssh/id_ed25519.pub
-```
-
-已有密钥不要覆盖。浏览器进入 SHAF 仓库 **Settings → Deploy keys → Add deploy key**，粘贴公钥，不勾写权限。首次连接核对 [GitHub 主机指纹](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints)。
+**Git 方式：** 按第 9 节添加服务器只读 Deploy key 后，在服务器终端执行：
 
 ```bash
-sudo mkdir -p /mnt/shaf-data/SHAF
-sudo chown "$(id -un):$(id -gn)" /mnt/shaf-data/SHAF
 git clone git@github.com:UpliftingSoul/SHAF.git /mnt/shaf-data/SHAF
-cd /mnt/shaf-data/SHAF
-git rev-parse --short HEAD
-mkdir -p log volumes model-cache backups
 ```
 
-也可 FinalShell 上传完整源码；不上传笔记本 `.venv/`、`node_modules/`、历史 Git 备份及密钥。新终端先回项目根目录。
+目标目录应不存在或为空，当前用户需有写权限。新终端先回项目根目录。知识源和评估材料在仓库中；分类语料、dataset、model、ONNX 不在 Git 中。已有产物上传完整 `data/ch10/`，没有则按第 7 节生成；已有 reports 不代表新服务器通过验收。
 
-### 3.2 Git 未保存的运行文件
+### 3.2 编辑 `.env`
 
-知识源和评估材料在仓库中；分类语料、切分数据、训练模型、ONNX 被忽略。有可用产物则上传完整 `data/ch10/` 目录结构，否则按第 7 节生成。仓库已有 reports **不能证明新服务器通过验收**，以本次日志、时间及配置为准。
+1Panel“文件”打开项目目录，复制 `.env.deploy.example` 为 `.env`，在线编辑并保存；VSCode 远程编辑也可。确保文件名是 `.env`，不是 `.env.txt`。
 
-## 4. 填写配置
+以下命令在服务器终端运行**三次**，三个不同密码分别填 `MYSQL_ROOT_PASSWORD`、`MYSQL_PASSWORD`、`MINIO_ROOT_PASSWORD`：
 
 ```bash
-cp .env.deploy.example .env
-chmod 600 .env
 openssl rand -hex 24
 ```
 
-随机密码命令运行三次，分别填 `MYSQL_ROOT_PASSWORD`、`MYSQL_PASSWORD`、`MINIO_ROOT_PASSWORD`；十六进制密码避免数据库 URL 特殊字符转义。用 VSCode 远程编辑 `.env`，每行一项，不保留 `REPLACE_WITH_...`。
+十六进制密码避免数据库 URL 转义问题，其余必填内容：
 
-### 4.1 模型 API
-
-| 配置 | 主方案 |
+| 配置 | 填写内容 |
 |---|---|
 | `CHAT_BASE_URL` / `CHAT_MODEL` | `https://api.deepseek.com/v1` / `deepseek-flash` |
 | `CHAT_API_KEY` | DeepSeek 官方 key |
 | `CHAT_THINKING` | `disabled`，其他推理专属项留空 |
-| `MODEL_CONTEXT_WINDOW` | `1000000`；换模型时填实际窗口 |
+| `MODEL_CONTEXT_WINDOW` | 模板 `1000000`；换模型时填实际窗口 |
 | `EMBED_BASE_URL` / `EMBED_MODEL` | `https://api.siliconflow.cn/v1` / `BAAI/bge-m3` |
 | `RERANK_BASE_URL` / `RERANK_MODEL` | `https://api.siliconflow.cn/v1` / `BAAI/bge-reranker-v2-m3` |
-| `EMBED_API_KEY` / `RERANK_API_KEY` | 对应账号 key；同账号可相同 |
+| `EMBED_API_KEY` / `RERANK_API_KEY` | 对应平台 key，同账号可相同 |
+| `FRONTEND_BIND` / `FRONTEND_PORT` | 主选 `127.0.0.1` / `8080` |
 
-API 名与展示版本名分开，当前为 `deepseek-flash`，见[官方接口](https://api-docs.deepseek.com/api/create-chat-completion/)。主方案关闭思考，以适配现有强制工具调用和消息续传链路。代码支持官方地址，无需中转。意图/摘要 `INTENT_*`、`SUMMARY_*` 留空则复用聊天模型。
+API 模型名与产品展示名不同，实际可用模型以[官方接口](https://api-docs.deepseek.com/api/create-chat-completion/)为准。关闭思考适配工具链；不需要中转。`INTENT_*`、`SUMMARY_*` 留空复用聊天模型。换 Qwen 时改官方兼容地址、模型/key，清空 DeepSeek/MiniMax 专属参数，再测试流式工具调用。首次保留 1024 维嵌入模型。
 
-改 Qwen 时换官方 OpenAI 兼容地址、模型和密钥，清空 DeepSeek/MiniMax 专属的 `CHAT_THINKING`、`CHAT_REASONING_EFFORT`、`CHAT_REASONING_SPLIT`，再验收结构化输出、流式工具调用、退款和工单。嵌入维度固定 1024，首次不随意换模型；计费、额度以各账号控制台为准。
+服务地址由 Compose 注入，不自行填宿主公网 IP；同域 `CORS_ORIGINS=[]`。CPU 模板采用 LoRA 秩 64、alpha 128、batch 4、累积 4、线程 4，先保留此起点。
 
-### 4.2 Langfuse Cloud
+### 3.3 Langfuse Cloud
 
-浏览器注册云端账号、创建组织和项目，在项目设置 API Keys 中创建密钥：
+浏览器创建云端项目，在项目设置 API Keys 创建密钥，填 `.env`：
 
 ```dotenv
 LANGFUSE_PUBLIC_KEY=pk-lf-你的公钥
@@ -128,129 +116,195 @@ LANGFUSE_SECRET_KEY=sk-lf-你的密钥
 LANGFUSE_BASE_URL=https://cloud.langfuse.com
 ```
 
-EU 如上；US 为 `https://us.cloud.langfuse.com`；JP 为 `https://jp.cloud.langfuse.com`，必须对应项目区域。SDK 已接入，成本脚本已适配 Observations v2。三项全空可暂时关闭。不启动旧 `docker-compose.langfuse.yml`，不运行 `make langfuse-up`。[官方接入](https://langfuse.com/docs/observability/get-started)
+EU 如上；US 用 `https://us.cloud.langfuse.com`，JP 用 `https://jp.cloud.langfuse.com`，匹配项目区域。SDK 已接入，无需改代码；三项全空可暂时关闭。不启动旧自托管 Langfuse 配置。[官方接入](https://langfuse.com/docs/observability/get-started)
 
-### 4.3 服务与训练
+## 4. 一次性构建，然后接入面板
 
-数据库/Milvus/MCP/分类器地址由 Compose 提供，容器内 localhost 是当前容器自身。同域 `CORS_ORIGINS=[]`。模板用可选 LoRA：秩 64、alpha 128、batch 4、累积 4、线程 4；源码默认仍 full。训练资源调整见运维手册。
+### 4.1 构建项目镜像
 
-## 5. 构建并启动存储
-
-项目根目录定义简写，**新终端重新定义**：
+以下在 **FinalShell 服务器终端**执行，构建期间保持连接。`dc` 是本手册 Compose 简写，新终端重新定义：
 
 ```bash
+cd /mnt/shaf-data/SHAF
+mkdir -p log volumes model-cache backups
+chmod 600 .env
 dc() { sudo docker compose -f docker-compose.prod.yml "$@"; }
 dc config --quiet
-dc pull mysql etcd minio milvus-standalone
 dc build mcp-logistics mcp-aftersales backend frontend
-dc up -d mysql etcd minio milvus-standalone
-dc ps
-dc images
+dc --profile classifier build classifier
 ```
 
-验收：四项最终 healthy。首次 CPU 镜像下载训练依赖需时间。持续 unhealthy 查看 `dc logs --tail=100 服务名`，不删目录反复重试；拉取失败先查官方源和出站网络。
+`config --quiet` 无错误才继续，`.env` 不再含 `REPLACE_WITH_...`。CPU 依赖下载较慢，失败先看网络和具体报错，无需宿主装 uv/Torch。
 
-记录本次提交号、镜像 ID/可用的仓库 digest。应用基镜像的 Python 3.12、Node 22、Nginx stable 以及 MySQL 8.4 标签可随补丁更新；需要精确复现时保留已验收镜像或将其 digest 固定，不只记录 tag。
+保留这段命令的原因：当前 1Panel 导入先尝试拉镜像，而 SHAF 镜像需本机构建；先构建避免导入时拉取 `shaf-*:local` 失败，也不受面板构建任务时限影响。classifier 此时只构建、不启动，不要求已有模型。
 
-MySQL 仅在**空数据目录首启**按文件名执行 `sql/`，含建表、迁移、FAQ 和合成会话种子。已有库不会自动执行新迁移，也不能重放全部非幂等 DDL。
+### 4.2 1Panel 原路径接入
+
+1. **容器 → 编排 → 创建编排**，选择“路径选择”。
+2. 选择 `/mnt/shaf-data/SHAF/docker-compose.prod.yml`，项目名保持 `shaf`。
+3. 检查环境变量栏已载入同目录 `.env` 的完整内容；保存会写回文件，**不能留空或删 key**。
+4. 不勾“强制拉取镜像”，提交后看任务日志，等待完成。
+5. `shaf` 详情中应有八个基础服务运行，有健康检查的服务最终 healthy；classifier 先不启动。
+
+原路径保留构建上下文、`.env` 和相对数据目录；不要单独粘贴 YAML 到另一目录。失败时在同一编排排查，不另建第二套项目。[1Panel 编排说明](https://1panel.cn/docs/v2/user_manual/containers/compose/)
+
+### 4.3 确认 MySQL 首启
+
+MySQL 仅在**空数据目录首启**按文件名执行 `sql/`，自动建表、写 FAQ/合成会话。不执行旧 `make seed` / `make seed-conv`。
+
+1Panel 找到 mysql 容器 → 终端，选择 `/bin/sh` 连接，执行：
 
 ```bash
-dc exec mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" mysql -ushaf --default-character-set=utf8mb4 mewhelp -e "SHOW TABLES; SELECT COUNT(*) AS faq_count FROM faq;"'
+mysql -ushaf -p --default-character-set=utf8mb4 mewhelp
 ```
 
-验收：业务表完整，含 `knowledge_chunks`、`review_queue`、`topic_classifications`，FAQ 非空。不再执行旧 `make seed` / `make seed-conv`。
+输入 `.env` 的 `MYSQL_PASSWORD`（不回显），再执行：
 
-Milvus 固定 v2.6.22，PyMilvus 按锁文件；官方说明新 SDK 协议向后兼容，但推荐同系列。仍以实际中文 BM25、向量与混合检索通过为准，不自动升级。[兼容说明](https://milvus.io/api-reference/pymilvus/v3.0.x/About.md)
-
-## 6. 知识初始化与应用验收
-
-```bash
-dc run --rm --no-deps backend uv run --no-sync python scripts/smoke_embed.py
-dc run --rm --no-deps backend uv run --no-sync python scripts/smoke_toolcall.py
-dc run --rm --no-deps backend make kb-preview
-dc run --rm --no-deps backend make kb-build
-dc run --rm --no-deps backend make kb-vectorize
-dc up -d mcp-logistics mcp-aftersales backend frontend
-dc ps
-curl -fsS http://127.0.0.1:8080/api/health
+```sql
+SHOW TABLES;
+SELECT COUNT(*) AS faq_count FROM faq;
 ```
 
-验收：嵌入 1024 维；工具冒烟实际返回 `add`、输出 `GO`；知识向量非空；应用 healthy，health 返回 JSON。工具冒烟打印 `NO-GO` 也可能以 0 退出，需检查正文。建库处理六份材料，已有文档块整体跳过；更新知识用补丁或网页录入，不清库。
+应含 `knowledge_chunks`、`review_queue`、`topic_classifications` 等业务表，FAQ 非空；`exit` 退出。已有目录不重放 SQL，首启出错先看 mysql 日志，不删数据重试。
 
-**笔记本终端**建立 SSH 隧道，替换账号/IP：
+## 5. 打开网页与初始化知识
+
+### 5.1 笔记本建立 SSH 隧道
+
+FinalShell SSH 隧道使用**本地端口转发**：本地 `8080` → 服务器目标 `127.0.0.1:8080`。也可在**笔记本终端**运行：
 
 ```bash
 ssh -N -L 8080:127.0.0.1:8080 ubuntu@服务器公网IP
 ```
 
-保持窗口，浏览器打开 `http://127.0.0.1:8080`。FinalShell 可用可视化 SSH 隧道配置；本机端口占用时把第一处 8080 改 18080，浏览器同步改。
+替换账号/IP并保持连接；浏览器打开 `http://127.0.0.1:8080`。本机端口占用时左侧改 18080，浏览器也改 18080，右侧仍是服务器 8080。隧道断开只影响访问，容器继续运行。
 
-`/kb` 用“邮费是多少”“猫砂盆 Pro 型号”测试 vector、bm25、hybrid、hybrid_rerank，检查正文和来源；聊天问“订单 1001 的物流到哪了”，检查订单、物流工具轨迹。允许模型措辞/合理排名变化。详细验收见测试指南。
+### 5.2 上游验证与知识入库
+
+1Panel → backend 容器终端，选择 `/bin/bash`，依次执行：
+
+```bash
+uv run --no-sync python scripts/smoke_embed.py
+uv run --no-sync python scripts/smoke_toolcall.py
+```
+
+嵌入应为 1024 维；工具验证应返回 `add` 并打印 `GO`。`NO-GO` 可能仍以 0 退出，需看正文。
+
+网页 `/kb` 依次执行**材料预览 → 离线建库 → 向量化待补块**，每步结束再继续。确认六份材料已处理、pending 为 0、MySQL done 与 Milvus 条数一致。已有文档块整体跳过，更新材料用补丁入口，不清库。
+
+用“邮费是多少”“猫砂盆 Pro 型号”测试 vector、bm25、hybrid、hybrid_rerank，检查正文与来源；再聊天问“订单 1001 的物流到哪了”，检查工具轨迹。模型措辞和合理排名可变化。
+
+## 6. 标准 Nginx 的实践要点
+
+`frontend/nginx.conf` 构建时自动放进前端镜像，无需再装 Nginx：
+
+| 配置 | 作用 |
+|---|---|
+| `listen 80` | 容器内部监听，Compose 映射为服务器 8080 |
+| `root` / `index` | 提供 Vue 构建后的静态页面 |
+| `location /` + `try_files` | 前端路由深层路径刷新仍返回 `index.html` |
+| `/api/` + `proxy_pass http://backend:8000` | 内网转发，保留 `/api` 前缀 |
+| `proxy_buffering off` / `proxy_cache off` | SSE 增量及时到达 |
+| `proxy_read_timeout 600s` | 留出模型处理等待时间 |
+
+frontend 容器终端执行 `nginx -t` 检查配置。修改源码中的配置后需**重新构建并创建 frontend**，重启不会更新镜像内文件。具体操作见运维手册。[Nginx 入门](https://nginx.org/en/docs/beginners_guide.html)
 
 ## 7. 分类器就绪
 
 ### 7.1 已有模型
 
-`data/ch10/onnx/` 至少有 `model.onnx`、`tokenizer.json`、`threshold.json`；存在外部权重时一并上传。重新评测、验收页还需完整 `model/`（config、权重、tokenizer、阈值）、`dataset/`、reports。仅有报告无法启动服务。
+上传 `data/ch10/onnx/`，至少含 `model.onnx`、`tokenizer.json`、`threshold.json`；外部权重文件一并上传。重新评测/验收还需完整 `model/`、`dataset/` 和 reports，不能只上传报告。
+
+服务器项目根目录，重新定义 `dc` 后执行：
 
 ```bash
-dc --profile classifier up -d --build classifier
-dc --profile classifier ps
-dc exec classifier python -c 'import urllib.request; print(urllib.request.urlopen("http://127.0.0.1:8110/healthz").read().decode())'
+dc --profile classifier up -d classifier
 ```
 
-### 7.2 无模型：生成与训练
-
-依次运行，每条结束再继续。预标/增强会消耗模型配额：
+面板无本项目 profile 专用开关，显式命令最直接。随后可用 1Panel 启停**已创建的 classifier 容器**、看日志。其容器终端验证：
 
 ```bash
-dc exec backend make ch10-golden
-dc exec backend make ch10-corpus
+python -c 'import urllib.request; print(urllib.request.urlopen("http://127.0.0.1:8110/healthz").read().decode())'
 ```
 
-黄金样例闸通过后再生成语料。VSCode 打开服务器 `data/ch10/sample_review.md` 抽审；纠错改对应 `corpus_labeled.jsonl` 的标签/文本，**只改抽审 Markdown 不影响训练**。确认后：
+### 7.2 无模型
+
+1. backend 容器终端执行 `make ch10-golden`，确认黄金样例闸通过。
+2. 网页 `/acceptance/data` 运行语料流水线；面板文件打开 `data/ch10/sample_review.md` 抽审，纠错改对应 `corpus_labeled.jsonl`。只改抽审 Markdown 不影响训练。
+3. 同页依次运行数据集划分与增强、训练；到 `/acceptance/eval` 执行测试集评测，通过后回数据页 ONNX 导出。
+4. 按 7.1 启动分类器，再在评测页跑阈值扫描，执行旁路归类；少量数据用“不足一批强跑”。
+
+基础模型首次从 Hugging Face 下载到 `model-cache/`。网络受限可上传完整模型目录，在 backend 终端使用 `make ch10-train TRAIN_ARGS="--base-model /app/data/ch10/base-model"`。LoRA 自动合并后沿用评测/ONNX，无额外推理平台。
+
+**不使用旧网页“拉起/停止分类器服务”按钮**，它们控制后端进程，不是独立容器。再次训练/导出前停 classifier，更新和回退见运维手册。
+
+## 8. 最短验收与可选公网 IP
+
+### 8.1 首次验收
+
+1. 首页、`/kb` 正常，深层路径刷新正常；`http://127.0.0.1:8080/api/health` 返回 JSON。
+2. 聊天逐段输出、工具/引用可见，工单确认/取消、退款选单/表单可操作。
+3. 四路检索有合理证据，知识条数和向量化状态一致。
+4. Langfuse Cloud 出现本次 trace，成本页重跑后有本次统计。
+5. 分类器上线后单句实验、批量归类和主题页通过。
+6. 无作业运行时在面板重启 backend，历史保留；中断续跑按测试指南验证。
+
+health 只证明进程存活；未生成新报告时显示缺产物正常。全部模块验收见[测试指南](docs/testing-guide.md)。
+
+### 8.2 可选：公网 IP 访问
+
+个人测试可限制来源 IP，不要求域名、HTTPS 或额外代理：
+
+1. 云安全组/防火墙允许 **TCP 8080，来源仅自己公网 IPv4/32**，展示时增加对方 IP。检查没有另一条允许所有来源的 8080/全端口规则，否则限制无效。
+2. 面板编辑 `.env`：`FRONTEND_BIND=0.0.0.0`，端口仍为 8080。
+3. 服务器项目根目录执行 `dc up -d --force-recreate frontend`，不是 restart。
+4. 浏览器打开 `http://服务器公网IP:8080`，重验聊天流式输出和写操作。
+
+应用没有登录鉴权，此方式仅限本人/获准展示者，**不开放给任意公网访问者**。Docker 发布端口可能绕过宿主防火墙，来源限制须在云控制台生效，不能只依赖面板主机防火墙。[Docker 端口说明](https://docs.docker.com/engine/network/port-publishing/)
+
+恢复 SSH 专用：改回 `FRONTEND_BIND=127.0.0.1`、重新创建 frontend、删除云侧 8080 放行。切换网址会改变浏览器本地会话选择，服务器数据并未丢失。
+
+## 9. 选读：私有仓库 Deploy key
+
+仅 Git 克隆方式需要。服务器终端生成独立密钥，已有同名文件不覆盖：
 
 ```bash
-dc exec backend make ch10-dataset
-dc exec backend make ch10-train
-dc exec backend make ch10-eval
-dc exec backend make ch10-export
-dc --profile classifier up -d --build classifier
-dc exec backend make ch10-threshold-scan
-dc exec backend make classify-pool FORCE=1
+ssh-keygen -t ed25519 -f ~/.ssh/shaf_deploy -C shaf-server
+cat ~/.ssh/shaf_deploy.pub
 ```
 
-基础模型首次从 Hugging Face 下载到挂载的 `model-cache/`。网络受限可上传完整模型目录，训练传 `TRAIN_ARGS="--base-model /app/data/ch10/base-model"`。LoRA 自动合并成标准模型再走 ONNX；无需额外推理平台。评测红线未达标则修数据/配置，不改考题凑分。
+GitHub 仓库 **Settings → Deploy keys → Add deploy key** 粘贴公钥，不勾写权限。服务器 `~/.ssh/config` 添加：
 
-网页可训练、评测和导出；独立分类器启停使用 Compose，**不用旧网页“拉起/停止分类器服务”按钮**。再次导出前停分类器，导出验证通过后重建/启动；更新步骤见运维手册。
+```sshconfig
+Host github.com
+    HostName github.com
+    User git
+    IdentityFile ~/.ssh/shaf_deploy
+    IdentitiesOnly yes
+```
 
-## 8. 首次交付清单与公网入口
+已有 github.com 设置则合并；首次连接核对[官方主机指纹](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints)，之后按第 3 节克隆。
 
-1. `/`、`/kb`、主题问题深层路径刷新正常；未知 API 返回错误而非网页。
-2. 聊天增量、工具、引用可见；退款选单/表单、工单确认/取消正常。
-3. `/kb` pending 为 0，MySQL done 与 Milvus 数一致，四路检索合理。
-4. MCP 物流、保修、退货查询可用；分类服务、单句实验、旁路写库通过。
-5. Langfuse 出现本次 trace 和意图标注；`dc exec backend make cost-report` 有本次数据。
-6. 无作业运行时 `dc restart backend`，历史保留；中断续跑按测试指南验收。
+## 10. 选读：以后正式对外上线
 
-health 只证明进程存活；缺少新报告显示缺产物是正常状态，不代表部署失败。
+以下是后续上线的准备清单，**现在个人部署全部跳过**。继续使用标准 Nginx，无需改用 OpenResty。
 
-个人调试可持续用 SSH 隧道。需要公网时，在宝塔“网站”创建独立反向代理站点，目标 `http://127.0.0.1:8080`，配置域名、HTTPS 证书及**整个站点的访问认证**。应用没有登录鉴权，浏览器用户标识不是认证身份。
-
-外层代理也关闭缓冲/缓存，允许 POST SSE，超时至少 600 秒。宝塔配置中查看并合并 `proxy_buffering off; proxy_cache off; proxy_read_timeout 600s; proxy_send_timeout 600s;`，不覆盖面板整份配置。不要只保护后台页面却开放 `/api`；公网后重验 SSE 和写操作。
-
-## 9. 启动排障
-
-| 现象 | 先查 |
+| 事项 | 后续操作 |
 |---|---|
-| 下载失败 | DNS、出站、官方源；CPU Torch 和 Hugging Face 各需可达 |
-| MySQL 首启失败 | 日志中 SQL 失败位置、目录是否空；不通过删数据掩盖问题 |
-| Milvus unhealthy | etcd/MinIO、凭据、CPU 指令集、内存、磁盘及日志 |
-| 网页 502 | backend 健康和 frontend 日志；后端重建后刷新 frontend 代理解析 |
-| 模型 401/404/429 | key、API 模型名、额度和限流 |
-| 检索无结果 | pending/done、向量数、维度、中文 BM25、重排逐层查 |
-| 分类器重启 | ONNX 三件套、外部权重、导出报告、classifier 日志 |
-| 训练被杀/退出 137 | 内存、并发重活；降低 batch 并调整梯度累积 |
-| `.env` 修改不生效 | restart 不重载环境，需重新创建容器 |
+| 域名 | DNS A 记录指向服务器；Nginx `server_name` 设置域名 |
+| HTTPS | 申请可信证书，证书/私钥从宿主只读挂载；Nginx 配置 `listen 443 ssl`、`ssl_certificate`、`ssl_certificate_key`，Compose/云防火墙同步开放 443 |
+| 证书续期 | 采用 ACME 客户端并安排续期任务，续期后 `nginx -t`、reload；不把私钥写进 Git/镜像 |
+| 访问认证 | 当前应用无账号体系；限定展示先用 Nginx Basic Auth 保护**整个站点及 `/api`**，必须结合 HTTPS。真正面向客户需补充应用身份与权限设计 |
+| HTTP 入口 | 80 仅作 HTTPS 跳转/证书验证；不保留无保护的 8080 旁路 |
+| 备份/维护 | 运维手册保留一致备份、异机副本、恢复、版本更新、SQL 迁移及日志归档；上线前实际演练 |
 
-日常排障见[运维手册](docs/operations.md)。不混用旧 `docker-compose.yml`、`docker-compose.app.yml`、`make dev` 启动入口。
+当前配置只监听容器 80，**不能只开放 443 就获得 HTTPS**。需先扩展 Nginx 配置、挂载证书，再调整 Compose 端口映射；届时按实际域名/证书来源实施并验收。Basic Auth 的 server 层核心配置如下，密码文件由 `htpasswd` 生成并只读挂载，位置与配置一致：
+
+```nginx
+auth_basic "SHAF access";
+auth_basic_user_file /etc/nginx/shaf.htpasswd;
+```
+
+公网后重验页面刷新、SSE、确认续跑及写操作。若将来增加外层代理，该层同样合并 `proxy_buffering off; proxy_cache off; proxy_read_timeout 600s; proxy_send_timeout 600s;`，不覆盖整份配置。
+
+参考：[Nginx HTTPS](https://nginx.org/en/docs/http/configuring_https_servers.html)、[Basic Auth](https://nginx.org/en/docs/http/ngx_http_auth_basic_module.html)。高并发/多机方案等实际需要时再设计，不是当前任务。

@@ -80,6 +80,8 @@ Langfuse Cloud 提供 trace 与意图 Token 统计；成本脚本分页读取 Ob
 
 开发启动见 README；云端部署见 DEPLOY，日常维护及页面验收见运维/测试指南。生产 Compose 使用单 worker、CPU 后台镜像、独立 MCP 与 ONNX 服务，Langfuse 接云端。持久数据放仓库所在数据盘的 data/、volumes/；这是独立首次部署入口，不自动迁移旧 Compose 数据卷。真实容器与外部服务仍需服务器验收。
 
+个人单机入口采用标准 Nginx；1Panel 只管理容器、文件、日志和计划任务，不增加 OpenResty。`FRONTEND_BIND` 默认回环，SSH 隧道访问；可选受来源 IP 限制的公网 HTTP。会话身份优先使用原生 UUID，HTTP 公网环境以 getRandomValues 生成同格式 UUID，已有身份继续复用。正式上线配置在部署手册选读节。
+
 ## 5. 正式项目文件清单（100%）
 
 覆盖集合为当前 Git 跟踪文件加未忽略的新项目文件，过滤已删除文件；每个文件只出现一次。校验脚本同时发现遗漏、重复和过期条目。第三方依赖内部文件、密钥及运行数据不属于正式源码全集，见第 6 节。
@@ -90,10 +92,10 @@ Langfuse Cloud 提供 trace 与意图 Token 统计；成本脚本分页读取 Ob
 |---|---|
 | `.dockerignore` | 后端构建上下文排除密钥、Git、本地环境、前端与运行数据。 |
 | `.env.example` | 后端配置模板：模型、数据库、MCP、分类器、预算、CORS 和观测配置；仅含占位值。 |
-| `.env.deploy.example` | Ubuntu 生产模板：随机密码占位、官方模型 API、Langfuse Cloud 及 CPU LoRA/推理参数。 |
+| `.env.deploy.example` | Ubuntu 模板：随机密码、官方模型 API、Langfuse Cloud、CPU LoRA/推理参数及前端监听地址。 |
 | `.gitattributes` | 统一文本换行与编码行为，降低跨 Windows / Ubuntu 协作差异。 |
 | `.gitignore` | 排除密钥、简介原稿、虚拟环境、依赖、日志、checkpoint 和训练产物。 |
-| `DEPLOY.md` | 当前分离架构的容器边界、配置、持久化、启动与尚需云端验收的前置。 |
+| `DEPLOY.md` | 个人单机主线：1Panel 管理、标准 Nginx、SSH/受限公网 IP、初始化验收；正式上线配置选读。 |
 | `Dockerfile.backend` | Python/uv 多阶段镜像：runtime 用于 API/MCP，cpu 增加训练依赖；单 worker FastAPI。 |
 | `Dockerfile.classifier` | 独立 ONNX CPU 推理镜像，不安装训练组；权重从 data/ 只读挂载。 |
 | `Makefile` | 离线与服务管理目标；页面作业复用其中的白名单目标，依赖 Ubuntu/POSIX。 |
@@ -235,7 +237,7 @@ Langfuse Cloud 提供 trace 与意图 Token 统计；成本脚本分页读取 Ob
 | `frontend/src/components/chat/CatAvatar.vue` | 原页面像素猫图标：用 SVG 组件复用，不在运行时拼接 HTML。 |
 | `frontend/src/components/chat/ChatMessageItem.vue` | 单条消息：工具标记、引用、反馈、建议动作与两类暂停卡片。 |
 | `frontend/src/components/chat/MessageContent.vue` | Markdown 与引用渲染：先消毒，再装饰文本节点；引用浮层只显示 Vue 转义文本。 |
-| `frontend/src/composables/useChat.ts` | 会话状态机：发送、续跑、历史隔离与用户反馈；所有请求随页面卸载取消。 |
+| `frontend/src/composables/useChat.ts` | 会话状态机：HTTP/HTTPS 身份生成、发送、续跑、历史隔离与反馈；请求随页面卸载取消。 |
 | `frontend/src/composables/useJob.ts` | 单个任务生命周期：串行轮询、重任务确认、停止与卸载取消，完成状态独立于页面刷新。 |
 | `frontend/src/composables/useResource.ts` | 页面取数状态：最后一次请求生效；卸载取消，避免旧响应覆盖新筛选条件。 |
 | `frontend/src/main.ts` | 应用启动：全局样式与路由仅初始化一次。 |
@@ -371,7 +373,7 @@ Langfuse Cloud 提供 trace 与意图 Token 统计；成本脚本分页读取 Ob
 | `frontend/tests/e2e/refund.spec.ts` | 退款安全交互回归：选单续跑、订单只读、原因人工选择、写入失败后保留输入。 |
 | `frontend/tests/e2e/report-artifacts.spec.ts` | 已有真实报告展示回归：使用仓库产物，不启动 Milvus、模型或训练服务。 |
 | `frontend/tests/e2e/review.spec.ts` | 飞轮审核浏览器回归：写回失败保留人工答案，成功后显示新队列状态。 |
-| `frontend/tests/unit/chat.test.ts` | 会话回归：取消后旧响应隔离、明确取消工单，以及历史失败后的可重试行为。 |
+| `frontend/tests/unit/chat.test.ts` | 会话回归：HTTP 首次聊天/已有身份、取消后旧响应隔离、工单取消及历史重试。 |
 | `frontend/tests/unit/job.test.ts` | 作业生命周期回归：串行轮询、失败后续查、重任务拒绝及卸载取消。 |
 | `frontend/tests/unit/message.test.ts` | 展示安全回归：模型输出不能注入脚本，引用仍能显示真实来源。 |
 | `frontend/tests/unit/sse.test.ts` | SSE 回归：测试真实分块边界与错误语义，不依赖数据库或上游模型。 |

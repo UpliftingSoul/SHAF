@@ -32,6 +32,8 @@ SHAF 是面向电商售后场景的智能客服框架，以确定性 Workflow �
 
 生产使用 Ubuntu 云端容器部署，Vue/Nginx 与 FastAPI 分别运行；MySQL、Milvus Standalone（含 etcd/MinIO）、两个 MCP 和 ONNX 分类器独立运行，Langfuse 使用云端。本地只做开发。生产入口为 `docker-compose.prod.yml`，含 CPU 训练镜像与分阶段初始化步骤；真实服务器构建和业务验收按 [部署手册](DEPLOY.md)执行。
 
+当前部署手册以个人单机测试/展示为主：1Panel 管理容器和文件，前端保留标准 Nginx；通过 SSH 隧道或受来源 IP 限制的公网 IP 访问。正式上线的域名、HTTPS、认证及长期运维保留为选读内容。
+
 | 手册 | 用途 |
 |---|---|
 | [部署](DEPLOY.md) | 从空服务器准备到首次服务验收 |

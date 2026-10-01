@@ -61,7 +61,7 @@ _CLIENT = MilvusClient(**kwargs)
 
 ### 4.1 停写与一致备份
 
-暂停 cron/宝塔调度、停止网页/脚本写入，做运维手册的一致备份，记录代码提交和 `.env`。保留原 Standalone 数据、原 embedding 模型与原索引；不删除原卷/目录。
+暂停 1Panel 计划任务/已有 cron、停止网页/脚本写入，做运维手册的一致备份，记录代码提交和 `.env`。保留原 Standalone 数据、原 embedding 模型与原索引；不删除原卷/目录。
 
 ### 4.2 先验证临时集合
 
@@ -96,6 +96,8 @@ _CLIENT = MilvusClient(**kwargs)
 云版独立 Compose 保留 frontend、backend、mysql、两个 MCP、classifier；删除 Milvus/etcd/MinIO 服务及相关 depends_on、卷挂载。backend 的 URI/token 来自 `.env`，不被主方案本机地址覆盖。云端密钥仅后端可见，前端不设置 VITE 密钥。
 
 首次迁移建议独立文件 `docker-compose.cloud.yml`，保持项目名、MySQL 和 data 挂载与主方案一致；勿混用不同文件启动出两套数据库。并行调试临时环境则使用不同项目名、网络、持久数据，避免抢占。
+
+若仍用 1Panel，原路径接入经过验证的云版 Compose，确认面板管理文件、更新命令与计划任务均切到同一入口；先移除旧编排的管理记录时不得删除源码/数据文件。保留标准前端 Nginx、SSH 隧道/受限公网 IP 访问，不新增 OpenResty。
 
 运维不再备份本机 etcd/MinIO/Milvus；仍备份 MySQL、checkpoint、语料/模型和配置，并启用所选云服务实际支持的备份/恢复能力。不能因为向量可重建就忽略飞轮原文备份。
 
