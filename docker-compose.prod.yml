@@ -1,0 +1,139 @@
+# Ubuntu 自托管入口：独立于旧开发 Compose；持久数据位于仓库所在数据盘。
+name: shaf
+x-runtime: &runtime
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "3"}
+services:
+  mysql:
+    <<: *runtime
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: mewhelp
+      MYSQL_USER: shaf
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?请填写 MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请填写 MYSQL_ROOT_PASSWORD}
+    volumes:
+      - ./volumes/mysql:/var/lib/mysql
+      - ./sql:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_ROOT_PASSWORD\" mysql -h 127.0.0.1 -uroot -Nse 'SELECT 1'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+  etcd:
+    <<: *runtime
+    image: quay.io/coreos/etcd:v3.5.25
+    environment:
+      ETCD_AUTO_COMPACTION_MODE: revision
+      ETCD_AUTO_COMPACTION_RETENTION: "1000"
+      ETCD_QUOTA_BACKEND_BYTES: "4294967296"
+      ETCD_SNAPSHOT_COUNT: "50000"
+    command: etcd -advertise-client-urls=http://etcd:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    volumes: [./volumes/etcd:/etcd]
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+  minio:
+    <<: *runtime
+    image: minio/minio:RELEASE.2024-05-28T17-19-04Z
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?请填写 MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?请填写 MINIO_ROOT_PASSWORD}
+    command: minio server /minio_data --console-address ":9001"
+    volumes: [./volumes/minio:/minio_data]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+  milvus-standalone:
+    <<: *runtime
+    image: milvusdb/milvus:v2.6.22
+    command: ["milvus", "run", "standalone"]
+    security_opt: [seccomp:unconfined]
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+      MINIO_REGION: us-east-1
+      MINIO_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?请填写 MINIO_ROOT_USER}
+      MINIO_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?请填写 MINIO_ROOT_PASSWORD}
+    volumes: [./volumes/milvus:/var/lib/milvus]
+    depends_on:
+      etcd: {condition: service_healthy}
+      minio: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 20s
+      timeout: 10s
+      start_period: 90s
+      retries: 15
+  mcp-logistics:
+    <<: *runtime
+    build: {context: ., dockerfile: Dockerfile.backend, target: runtime}
+    image: shaf-backend:local
+    command: ["uv", "run", "--no-sync", "python", "mcp_servers/logistics_server.py"]
+    environment: {HOST: "0.0.0.0", PORT: "8101"}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1',8101),3).close()"]
+      interval: 10s
+      retries: 12
+  mcp-aftersales:
+    <<: *runtime
+    build: {context: ., dockerfile: Dockerfile.backend, target: runtime}
+    image: shaf-backend:local
+    command: ["uv", "run", "--no-sync", "python", "mcp_servers/aftersales_server.py"]
+    environment: {HOST: "0.0.0.0", PORT: "8102"}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1',8102),3).close()"]
+      interval: 10s
+      retries: 12
+  backend:
+    <<: *runtime
+    build: {context: ., dockerfile: Dockerfile.backend, target: cpu}
+    image: shaf-backend-cpu:local
+    env_file: .env
+    environment:
+      DATABASE_URL: mysql+asyncmy://shaf:${MYSQL_PASSWORD:?请填写 MYSQL_PASSWORD}@mysql:3306/mewhelp
+      MILVUS_URI: http://milvus-standalone:19530
+      MCP_LOGISTICS_URL: http://mcp-logistics:8101/mcp
+      MCP_AFTERSALES_URL: http://mcp-aftersales:8102/mcp
+      CLASSIFIER_URL: http://classifier:8110
+      CORS_ORIGINS: '[]'
+    volumes: [./data:/app/data, ./log:/app/log, ./model-cache:/root/.cache/huggingface]
+    depends_on:
+      mysql: {condition: service_healthy}
+      milvus-standalone: {condition: service_healthy}
+      mcp-logistics: {condition: service_healthy}
+      mcp-aftersales: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 90s
+      retries: 15
+  frontend:
+    <<: *runtime
+    build: {context: ./frontend}
+    ports: ["127.0.0.1:${FRONTEND_PORT:-8080}:80"]
+    depends_on:
+      backend: {condition: service_healthy}
+  classifier:
+    <<: *runtime
+    profiles: [classifier]
+    build: {context: ., dockerfile: Dockerfile.classifier}
+    environment:
+      CH10_INFERENCE_BATCH_SIZE: ${CH10_INFERENCE_BATCH_SIZE:-32}
+      CH10_INFERENCE_THREADS: ${CH10_INFERENCE_THREADS:-4}
+    volumes: [./data:/app/data:ro]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8110/healthz', timeout=3)"]
+      interval: 15s
+      start_period: 60s
+      retries: 10
+networks:
+  default: {name: shaf-main}

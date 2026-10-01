@@ -18,7 +18,9 @@ from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
 
-mcp = FastMCP("aftersales",host="127.0.0.1", port=int(os.environ.get("PORT", "8102")))
+# 容器间访问需要监听所有容器接口；默认仍兼容本地开发。
+mcp = FastMCP("aftersales", host=os.environ.get("HOST", "127.0.0.1"),
+              port=int(os.environ.get("PORT", "8102")))
 
 _DELAY = float(os.environ.get("MOCK_DELAY_SECONDS", "0"))
 

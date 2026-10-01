@@ -17,8 +17,9 @@ from typing import Annotated
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
-# FastMCP实例，服务标识logistics；端口优先读环境变量PORT，默认8101，仅本机监听
-mcp = FastMCP("logistics", host="127.0.0.1", port=int(os.environ.get("PORT", "8101")))
+# 本地默认回环监听；独立容器设置 HOST=0.0.0.0，由容器网络限定访问范围。
+mcp = FastMCP("logistics", host=os.environ.get("HOST", "127.0.0.1"),
+              port=int(os.environ.get("PORT", "8101")))
 
 _DELAY = float(os.environ.get("MOCK_DELAY_SECONDS", "0"))
 _STATUS_CODES = ["PICKED_UP", "IN_TRANSIT", "DELIVERING", "DELIVERED"]

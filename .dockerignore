@@ -9,8 +9,12 @@
 .env.*
 !.env.example
 Introduction.txt
+DEPLOY_old_reference*
 frontend
 log
 logs
+volumes
+model-cache
+backups
 data
 docs

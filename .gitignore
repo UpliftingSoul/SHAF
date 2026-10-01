@@ -1,6 +1,8 @@
 .venv/
 # 本地简介、IDE 配置和前端构建产物不进入版本库。
 Introduction.txt
+# 只读部署参考材料及其扩展名副本不进入版本库。
+DEPLOY_old_reference*
 .idea/
 node_modules/
 dist/
@@ -12,9 +14,14 @@ __pycache__/
 *.pyc
 .env
 # .env 的各种变体(备份、按环境分的副本)同样含真实密钥,必须一起挡住。
-# 只放行 .env.example —— 它是对外发布的模板,里面只有占位符。
+# 仅放行明确列出的配置模板，模板只能包含占位符。
 .env.*
 !.env.example
+!.env.deploy.example
+# 服务器持久数据、模型缓存与备份不进入版本库。
+volumes/
+model-cache/
+backups/
 .pytest_cache/
 .superpowers/
 data/*.db*
