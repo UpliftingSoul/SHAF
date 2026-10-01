@@ -99,11 +99,11 @@ class Settings(BaseSettings):
     tool_max_retries: int = 2            # 只读工具暂时性故障最大重试次数
     demo_ticket_delay_seconds: float = 0.0  # 验收 6:>0 时 create_ticket 人为变慢(写超时演示)
 
-    # ch09 可观测(Langfuse 自部署;三者齐全才挂回调,缺省时系统照常跑、测试环境不依赖)
+    # ch09 云端可观测；三者齐全才挂回调，缺省时系统照常跑、测试环境不依赖。
     # 环境变量名与 SDK 一致:LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY / LANGFUSE_BASE_URL
     langfuse_public_key: str = ""
     langfuse_secret_key: str = ""
-    langfuse_base_url: str = ""     # 如 http://localhost:3000(自部署地址,数据不出门)
+    langfuse_base_url: str = ""     # 云端项目所在区域地址；三项留空则关闭观测
     # ch09 置信度闸(正式版):阈值由 make calibrate-confidence 在 ch04 评估集上校准回填,不拍脑袋
     # 实测:可答桶 p50=0.715 vs 应拒桶 p50=0.105/max=0.251,YoudenJ 最优点 0.26
     # (可答通过率 85%、应拒放行率 0%,报告见 data/ch09/reports/confidence_calibration.txt,

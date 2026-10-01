@@ -2,8 +2,8 @@
 ch09 Cost Control：从 Langfuse 按意图汇总近 N 天的 token 消耗，定位最耗资源的业务意图。
 
 意图分类阶段会把结果写成 intent:xxx tag 挂到 trace，
-本脚本不自行埋点，而是直接查询 Langfuse Metrics API，以 observations 视图按 tags + traceId 拉取 token 明细，
-再在客户端按 intent 聚合出请求数、总 token、单均 token 与占比；
+本脚本不自行埋点，而是分页查询 Langfuse Observations v2，关联同一 trace 的意图标签与模型用量，
+再按 intent 聚合出请求数、总 token、单均 token 与占比；
 未携带 intent tag 的历史 trace 不纳入统计。
 
 运行：make cost-report
@@ -14,8 +14,8 @@ ch09 Cost Control：从 Langfuse 按意图汇总近 N 天的 token 消耗，定�
 - data/ch09/reports/cost_by_intent.json：「观测与成本」页面的唯一数据源，
   页面直接读取其中已经算好的统计值，不再自行重复计算，避免报告与页面口径漂移。
 
-兼容口径：当前自部署 Langfuse v3.218 使用 SDK 的 api.legacy.metrics_v1；
-v1 不提供 traces 视图，因此从 observations 视图拉取明细，再按 traceId 去重统计请求数。
+兼容口径：面向 Langfuse Cloud / v4，不依赖即将停用的 Metrics v1。
+只统计 GENERATION 自身用量，避免父级 span 汇总被再次累加；按 traceId 去重计请求。
 
 成本边界：自定义模型（如 glm-5.2）没有 Langfuse 内置单价，本脚本只统计 token，
 不维护或推算金额价格表；如需查看实际费用，应在 Langfuse 中配置对应模型单价。
@@ -27,6 +27,7 @@ import json
 import pathlib
 import sys
 from collections import defaultdict
+from collections.abc import Iterable, Iterator
 from datetime import datetime, timedelta, timezone
 
 from app.core import read_notes
@@ -47,77 +48,74 @@ def _window(days: int) -> tuple[str, str]:
     return (now - timedelta(days=days)).strftime(fmt), now.strftime(fmt)
 
 
-def _rows_of(resp) -> list[dict]:
-    """兼容 Langfuse Metrics API 的对象 / dict 响应，将 data 统一转换为字典列表。"""
-
-    data = getattr(resp, "data", None)
-    if data is None and isinstance(resp, dict):
-        data = resp.get("data")
-    return [row if isinstance(row, dict) else row.dict() for row in (data or [])]
+def _as_dict(value) -> dict:
+    """SDK 对象按 API 原始字段名展开，也兼容受控测试中的字典。"""
+    # Fern SDK 的 dict() 额外处理 FieldMetadata；普通 model_dump 不会展开这些别名。
+    return value if isinstance(value, dict) else value.dict()
 
 
-def _query(client, frm: str, to: str) -> list[dict]:
+def _query(client, frm: str, to: str) -> Iterator[dict]:
+    """完整游标分页；只取关联与用量字段，不读取对话正文。
+
+    意图可能只在 intent-tagged 事件出现，因此不能只查询 GENERATION。
+    游标重复时明确失败，避免死循环或产生看似完整的部分报告。
     """
-    查询指定时间窗内的 token 明细。
-    v1 Metrics API 从 observations 视图按 tags + traceId 分组，
-    为后续“按意图统计 token、按 trace 去重计请求数”提供原始数据。
-    """
+    cursor, seen_cursors = None, set()
+    while True:
+        page = _as_dict(client.api.observations.get_many(
+            fields="core,basic,usage,trace_context", limit=1000, cursor=cursor,
+            from_start_time=datetime.fromisoformat(frm),
+            to_start_time=datetime.fromisoformat(to),
+        ))
+        yield from (_as_dict(row) for row in page["data"])
+        cursor = (page.get("meta") or {}).get("cursor")
+        if not cursor:
+            return
+        if cursor in seen_cursors:
+            raise RuntimeError("Langfuse 分页游标重复，已停止统计；请稍后重试")
+        seen_cursors.add(cursor)
 
-    resp = client.api.legacy.metrics_v1.metrics(query=json.dumps({
-        "view": "observations",
-        "metrics": [{"measure": "totalTokens", "aggregation": "sum"}],
-        "dimensions": [{"field": "tags"}, {"field": "traceId"}],
-        "filters": [],
-        "fromTimestamp": frm,
-        "toTimestamp": to,
-    }))
-    return _rows_of(resp)
+
+def _token_total(row: dict) -> int:
+    """total 包含 input/output；缓存细项也是子项，不另行相加。"""
+    usage = row.get("usageDetails") or {}
+    if usage.get("total") is not None:
+        return int(usage["total"])
+    return int(usage.get("input") or 0) + int(usage.get("output") or 0)
 
 
-def _aggregate(rows: list[dict]) -> list[dict]:
-    """
-    将 Metrics 明细按 intent 聚合。
-    token 直接累加，request count 按 traceId 去重；没有 intent:xxx tag 的旧 trace 忽略。
-    最终按总 token 降序返回，最耗 token 的意图自然排在首位。
-    """
-
-    acc: dict[str, dict] = defaultdict(
-        lambda: {"tokens": 0, "traces": set()}
-    )
-
+def _aggregate(rows: Iterable[dict]) -> list[dict]:
+    """跨页关联意图与用量；同一事件去重，同一 trace 只计一次请求。"""
+    traces = defaultdict(lambda: {"tokens": 0, "intents": set()})
+    seen = set()
     for row in rows:
+        trace_id, observation_id = row["traceId"], row["id"]
+        if not trace_id:                         # 无请求关联的数据无法归因，不拼成虚构请求
+            continue
+        if (trace_id, observation_id) in seen:
+            continue
+        seen.add((trace_id, observation_id))
+        trace = traces[trace_id]
         tags = row.get("tags") or []
         if isinstance(tags, str):
             tags = [tags]
+        trace["intents"].update(t.removeprefix("intent:") for t in tags
+                                if isinstance(t, str) and t.startswith("intent:")
+                                and t.removeprefix("intent:"))
+        if row.get("type") == "GENERATION":
+            trace["tokens"] += _token_total(row)
 
-        # intent 来源只认 classify_intent 写入的 intent:xxx tag；
-        # 没有该 tag 的历史数据无法可靠归类，因此不强行计入某个兜底桶。
-        intents = [
-            t.removeprefix("intent:")
-            for t in tags
-            if str(t).startswith("intent:")
-        ]
-        if not intents:
+    acc = defaultdict(lambda: {"tokens": 0, "count": 0})
+    for trace in traces.values():
+        if not trace["intents"]:
             continue
-
-        intent = intents[0]
-        acc[intent]["tokens"] += int(
-            float(row.get("sum_totalTokens") or 0)
-        )
-        acc[intent]["traces"].add(row.get("traceId"))
-
-    return sorted(
-        (
-            {
-                "intent": k,
-                "tokens": v["tokens"],
-                "count": len(v["traces"]),
-            }
-            for k, v in acc.items()
-        ),
-        key=lambda r: r["tokens"],
-        reverse=True,
-    )
+        if len(trace["intents"]) != 1:
+            raise ValueError("同一 Langfuse trace 存在多个意图标签，无法可靠归因")
+        intent = next(iter(trace["intents"]))
+        acc[intent]["tokens"] += trace["tokens"]
+        acc[intent]["count"] += 1
+    return sorted(({"intent": intent, **totals} for intent, totals in acc.items()),
+                  key=lambda row: row["tokens"], reverse=True)
 
 
 def main() -> int:
