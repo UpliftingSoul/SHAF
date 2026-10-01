@@ -46,9 +46,9 @@ MySQL 是知识记录主源，向量写回失败时保留 pending 等待重试�
 
 ### 2.4 观测、报告与分类
 
-Langfuse 提供 trace 与意图成本，评估表提供趋势，磁盘 JSON 提供 RAG、校准和分类验收产物。页面展示同一权威报告，不另算评测分数。RAG 裁判判出率与人工确认幻觉率均按本轮可用题量计，累计台账只用于跨轮追踪，不能拿累计条数除以本轮题量。
+Langfuse Cloud 提供 trace 与意图 Token 统计；成本脚本分页读取 Observations v2，按请求关联意图、去重归集模型用量。评估表提供趋势，磁盘 JSON 提供 RAG、校准和分类验收产物。页面展示同一权威报告，不另算评测分数。RAG 裁判判出率与人工确认幻觉率均按本轮可用题量计，累计台账只用于跨轮追踪，不能拿累计条数除以本轮题量。
 
-在线九类意图用于客服路由；旁路 17 类多标签主题用于知识缺口排序，两者不能替换。训练/评估与 ONNX 轻推理分工，阈值和 tokenizer 都是模型产物的一部分。单句实验分数由分类器返回，前端只绘图。
+在线九类意图用于客服路由；旁路 17 类多标签主题用于知识缺口排序，两者不能替换。训练默认 full，可选 LoRA（默认秩 64）；LoRA 合并成标准模型后仍由原评测与 ONNX 导出链路验收。ONNX 服务分批推理，阈值和 tokenizer 都是模型产物的一部分。单句实验分数由分类器返回，前端只绘图。
 
 ## 3. 前端组织与页面
 
@@ -99,7 +99,7 @@ Langfuse 提供 trace 与意图成本，评估表提供趋势，磁盘 JSON 提�
 | `docker-compose.app.yml` | Vue/Nginx 与 FastAPI 两个应用容器；与原基础设施配置合并使用。 |
 | `docker-compose.langfuse.yml` | 独立 Langfuse web/worker、Postgres、ClickHouse、Redis 与对象存储栈。 |
 | `docker-compose.yml` | MySQL、Milvus Standalone、etcd、MinIO 及原命名的数据卷、初始化 SQL。 |
-| `pyproject.toml` | Python 依赖、Python 版本、dev/ml 分组和 pytest 配置；包元数据旧名保留兼容。 |
+| `pyproject.toml` | Python 依赖、dev/ml/inference 分组、可选 cpu 安装来源及 pytest 配置；包元数据旧名保留兼容。 |
 | `uv.lock` | 精确锁定 Python 依赖解析结果，用于可重复同步。 |
 
 ### 5.2 后端 HTTP 与配置
@@ -283,12 +283,12 @@ Langfuse 提供 trace 与意图成本，评估表提供趋势，磁盘 JSON 提�
 | `scripts/ch10/inference_lib.py` | ch10 推理纯函数:阈值应用与空标签兜底。evaluate 与 serve 共用,行为不许分叉。 |
 | `scripts/ch10/prelabel.py` | ch10 预标:大模型照权威术语表给问题打多标签。折中路线的前半——预标,后半人工抽审。 |
 | `scripts/ch10/scan_threshold_replay.py` | 验证集通过 ONNX 服务打分一次，固定分数表重演九个候选阈值并写扫描报告。 |
-| `scripts/ch10/serve.py` | ch10 推理服务:ONNX + FastAPI 独立进程 :8110,轻运行时(onnxruntime + tokenizers,不背 torch)。 |
+| `scripts/ch10/serve.py` | ONNX + FastAPI 独立分类服务，按可配置批量和线程数限制 CPU 资源，不加载 Torch/PEFT。 |
 | `scripts/ch10/supplement_sizefit.jsonl` | 尺码适配定向补充训练语料，不用于修改测试考卷。 |
-| `scripts/ch10/train.py` | ch10 训练:RoBERTa-wwm-ext 全参微调,17 类多标签(BCEWithLogitsLoss)。 |
+| `scripts/ch10/train.py` | 17 类多标签 full/LoRA 训练、最优参数恢复、阈值校准及标准模型/适配器保存。 |
 | `scripts/ch10/validate_golden.py` | ch10 预标质量闸:黄金样例上标签集合完全一致率 ≥ 80% 才放行批量预标。 |
 | `scripts/check_architecture.py` | 校验手册逐文件清单的 100% 覆盖、重复和过期路径。 |
-| `scripts/cost_by_intent.py` | ch09 Cost Control：从 Langfuse 按意图汇总近 N 天的 token 消耗，定位最耗资源的业务意图。 |
+| `scripts/cost_by_intent.py` | 分页读取 Langfuse Observations v2，跨事件关联意图，汇总请求与 Token 并生成页面报告。 |
 | `scripts/demo_agent.sh` | 非流式 Agent 调用演示，展示工具调用返回。 |
 | `scripts/demo_ch08_promotions.py.txt` | 工具扩展示例文本，不被运行时自动扫描；用于人工参考。 |
 | `scripts/demo_chat.sh` | 原纯聊天接口演示脚本；历史会话参数需结合当前 schema 使用。 |
@@ -414,6 +414,7 @@ Langfuse 提供 trace 与意图成本，评估表提供趋势，磁盘 JSON 提�
 | `tests/test_api_boundary.py` | 独立 API 边界：进程健康检查与显式来源 CORS 不依赖外部业务服务。 |
 | `tests/test_ch10_corpus_lib.py` | ch10 语料纯函数:脱敏 / 去重 / 分层划分。 |
 | `tests/test_ch10_inference_lib.py` | ch10 阈值应用与兜底纯函数(evaluate/serve 共用,行为不许分叉)。 |
+| `tests/test_ch10_training.py` | 使用本地小型 BERT 验证 full/LoRA 训练、权重恢复、评测、ONNX 和服务分批一致性。 |
 | `tests/test_chat_api.py` | SSE 增量、引用、完成与错误帧回归测试；是否连接真实依赖由夹具决定。 |
 | `tests/test_chunking_overlap.py` | 知识切块重叠和上下文保留回归测试；是否连接真实依赖由夹具决定。 |
 | `tests/test_chunking_split.py` | 标题与段落切分回归测试；是否连接真实依赖由夹具决定。 |
@@ -421,6 +422,7 @@ Langfuse 提供 trace 与意图成本，评估表提供趋势，磁盘 JSON 提�
 | `tests/test_config.py` | 配置解析与必填项回归测试；是否连接真实依赖由夹具决定。 |
 | `tests/test_context_assembly.py` | ch07 上下文拼装(纯函数级):拼装顺序固定、滑窗从摘要边界后接原文、无摘要不插额外 system。 |
 | `tests/test_conversations_api.py` | 会话列表与消息历史只读 API 回归，仓储打桩，不连接真实数据库。 |
+| `tests/test_cost_by_intent.py` | 云端统计分页、跨页标签关联、Token 去重以及报告到页面 API 的契约回归。 |
 | `tests/test_db_conn.py` | 真实 MySQL 连接回归测试；是否连接真实依赖由夹具决定。 |
 | `tests/test_dedup.py` | 知识候选去重回归测试；是否连接真实依赖由夹具决定。 |
 | `tests/test_documents.py` | 知识文档解析回归测试；是否连接真实依赖由夹具决定。 |
@@ -468,6 +470,7 @@ Langfuse 提供 trace 与意图成本，评估表提供趋势，磁盘 JSON 提�
 | 文件 | 职责与维护提示 |
 |---|---|
 | `docs/architecture.md` | 本架构手册，含系统链路、维护入口及全部正式项目文件清单。 |
+| `docs/classifier-observability-upgrade-plan.md` | 云端观测与可选 LoRA 升级范围、兼容方案、使用入口和验证边界。 |
 | `docs/frontend-separation-plan.md` | 本阶段核心规划、已确认范围、迁移原则和分阶段验证记录。 |
 | `docs/superpowers/plans/2026-07-13-ch01-pure-chat.md` | 纯聊天与结构化提取历史实施计划。仅作背景，以当前源码及分离规划为准。 |
 | `docs/superpowers/plans/2026-07-14-ch02-function-calling.md` | Function Calling 业务工具历史实施计划。仅作背景，以当前源码及分离规划为准。 |
@@ -514,4 +517,4 @@ Langfuse 提供 trace 与意图成本，评估表提供趋势，磁盘 JSON 提�
 
 已执行 Python 纯逻辑及受控接口、Vue 单元、类型检查、生产构建与浏览器交互验证；浏览器数据和已有报告展示不等于真实服务联调。真实 MySQL 凭据不可用、Milvus/完整模型未配置和 Linux/Docker 专属项按用户确认范围跳过。实际数字以分离规划的最终验证记录为准。
 
-历史课堂计划和评估脚本可能采用较早接口或流程（例如旧纯聊天会话参数、旧摘要验收）。它们保留用于学习和追溯，运行前应与当前 schema 对照；不把历史文档当作部署命令的最高依据。
+历史计划和评估脚本可能采用较早接口或流程（例如旧纯聊天会话参数、旧摘要验收）。它们保留用于设计追溯，运行前应与当前 schema 对照；不把历史文档当作部署命令的最高依据。

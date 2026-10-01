@@ -1,6 +1,8 @@
 # Python 强制 UTF-8。中文 Windows 默认 GBK,读本仓库里带中文的 markdown / jsonl
 # (知识库、评估集)会抛 UnicodeDecodeError。必须在 Python 启动前生效,所以设在这里而不是 .env。
 export PYTHONUTF8 = 1
+# CPU 服务器可传 ML_UV_ARGS="--extra cpu"，避免安装 GPU 专用依赖。
+ML_UV_ARGS ?=
 
 .PHONY: help kb-repatch dev test eval eval-check judge-check seed eval-ch07 eval-agent kb-preview kb-build kb-vectorize kb-mine eval-retrieval seed-conv eval-mining kb-reset milvus-up milvus-down smoke-rag eval-rag smoke-interrupt eval-ch06 mcp-up mcp-down langfuse-up langfuse-down
 
@@ -47,21 +49,21 @@ ch10-corpus:  ## ch10 语料流水线:捞池→清洗→预标→模拟补足→
 ch10-dataset:  ## ch10 分层划分 80/10/10 + 训练集增强(需聊天上游)
 	PYTHONPATH=. uv run python scripts/ch10/build_dataset.py
 
-ch10-train:  ## ch10 RoBERTa-wwm-ext 全参微调(MPS/CUDA/CPU 自适应,重依赖走 ml 组)
-	PYTHONPATH=. uv run --group ml python scripts/ch10/train.py
+ch10-train:  ## ch10 默认全参；TRAIN_ARGS="--mode lora" 可选低秩微调，重依赖走 ml 组
+	PYTHONPATH=. uv run --group ml $(ML_UV_ARGS) python scripts/ch10/train.py $(TRAIN_ARGS)
 
 ch10-eval:  ## ch10 测试集评测:每类 P/R/F1 + 混淆矩阵 + 容错红线 + 判错样本导出
-	PYTHONPATH=. uv run --group ml python scripts/ch10/evaluate.py
+	PYTHONPATH=. uv run --group ml $(ML_UV_ARGS) python scripts/ch10/evaluate.py
 
 ch10-export:  ## ch10 导出 ONNX 并校验与 torch 预测完全一致
-	PYTHONPATH=. uv run --group ml python scripts/ch10/export_onnx.py
+	PYTHONPATH=. uv run --group ml $(ML_UV_ARGS) python scripts/ch10/export_onnx.py
 
 ch10-threshold-scan:  ## ch10 阈值扫描重演:九候选线各算一遍 micro-F1(需 :8110)
 	PYTHONPATH=. uv run python scripts/ch10/scan_threshold_replay.py
 
 classifier-up:  ## ch10 推理服务 :8110(ONNX 轻运行时)
 	@mkdir -p log data
-	@PYTHONPATH=. nohup uv run --group ml python scripts/ch10/serve.py > log/classifier.log 2>&1 & echo $$! > data/classifier.pid
+	@PYTHONPATH=. nohup uv run --group inference python scripts/ch10/serve.py > log/classifier.log 2>&1 & echo $$! > data/classifier.pid
 	@sleep 2 && curl -sf http://127.0.0.1:8110/healthz >/dev/null && echo "分类器服务已拉起: :8110(pid 见 data/classifier.pid)" || echo "启动失败,看 log/classifier.log"
 
 classifier-down:

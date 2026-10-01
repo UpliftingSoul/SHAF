@@ -23,7 +23,25 @@ dependencies = [
     "uvicorn[standard]>=0.51.0",
 ]
 
+[project.optional-dependencies]
+# 无 GPU 的服务器显式选择 --extra cpu；不改变原 ml 组在 GPU 机器上的默认解析。
+cpu = ["torch>=2.6"]
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", extra = "cpu" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
 [dependency-groups]
+# 独立分类器只安装 CPU 推理依赖，不携带训练用 torch/transformers。
+inference = [
+    "numpy>=1.26",
+    "onnxruntime>=1.20",
+    "tokenizers>=0.20",
+]
 dev = [
     "httpx>=0.28.1",
     "httpx2>=2.5.0",
@@ -33,6 +51,7 @@ dev = [
 # ch10 训练/导出重依赖:主应用运行时不需要,uv run --group ml 按需装
 ml = [
     "torch>=2.6",
+    "peft>=0.21,<0.22",
     "transformers>=4.46",
     "accelerate>=1.0",
     "scikit-learn>=1.5",
