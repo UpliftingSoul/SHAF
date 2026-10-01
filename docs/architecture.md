@@ -78,7 +78,7 @@ Langfuse Cloud 提供 trace 与意图 Token 统计；成本脚本分页读取 Ob
 - 调试任务：查看后端返回日志；make 白名单没有消除数据库、模型、平台和计算资源的前置条件。
 - 扩展文件：同时更新下方逐文件清单，再执行 `python scripts/check_architecture.py`。
 
-开发启动见 README；云端部署见 DEPLOY，日常维护及页面验收见运维/测试指南。生产 Compose 使用单 worker、CPU 后台镜像、独立 MCP 与 ONNX 服务，Langfuse 接云端。持久数据放仓库所在数据盘的 data/、volumes/；这是独立首次部署入口，不自动迁移旧 Compose 数据卷。真实容器与外部服务仍需服务器验收。
+开发启动见 README；云端部署见 DEPLOY，日常维护及页面验收见运维/测试指南。生产 Compose 使用单 worker、CPU 后台镜像、独立 MCP 与 ONNX 服务，Langfuse 接云端。当前服务器为 80GB 系统盘、无独立数据盘；持久数据绑定项目目录下的 data/、volumes/ 等宿主文件夹。这是独立首次部署入口，不自动迁移旧 Compose 数据卷。真实容器与外部服务仍需服务器验收。
 
 个人单机入口采用标准 Nginx；1Panel 只管理容器、文件、日志和计划任务，不增加 OpenResty。`FRONTEND_BIND` 默认回环，SSH 隧道访问；可选受来源 IP 限制的公网 HTTP。会话身份优先使用原生 UUID，HTTP 公网环境以 getRandomValues 生成同格式 UUID，已有身份继续复用。正式上线配置在部署手册选读节。
 
@@ -102,7 +102,7 @@ Langfuse Cloud 提供 trace 与意图 Token 统计；成本脚本分页读取 Ob
 | `README.md` | 项目定位、技术栈、本地开发入口、功能模块与导航。 |
 | `docker-compose.app.yml` | Vue/Nginx 与 FastAPI 两个应用容器；与原基础设施配置合并使用。 |
 | `docker-compose.langfuse.yml` | 独立 Langfuse web/worker、Postgres、ClickHouse、Redis 与对象存储栈。 |
-| `docker-compose.prod.yml` | Ubuntu 主部署入口：应用、MySQL、Milvus/etcd/MinIO、MCP、可选启动分类器，内网地址与数据盘持久挂载。 |
+| `docker-compose.prod.yml` | Ubuntu 主部署入口：应用、MySQL、Milvus/etcd/MinIO、MCP、可选启动分类器，内网地址与项目目录持久挂载。 |
 | `docker-compose.yml` | MySQL、Milvus Standalone、etcd、MinIO 及原命名的数据卷、初始化 SQL。 |
 | `pyproject.toml` | Python 依赖、dev/ml/inference 分组、可选 cpu 安装来源及 pytest 配置；包元数据旧名保留兼容。 |
 | `uv.lock` | 精确锁定 Python 依赖解析结果，用于可重复同步。 |

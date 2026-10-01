@@ -2,7 +2,7 @@
 
 适用：已按[部署手册](../DEPLOY.md)跑通的个人单机实例。**日常使用第 1–4 节；改代码/模型前看第 5 节；需要自动化或长期对外服务时再看第 6 节。** 1Panel 负责容器、文件、日志和计划任务，标准 Nginx 负责页面/API，不依赖 OpenResty。
 
-页面功能验收见[测试指南](testing-guide.md)，源码定位见[架构](architecture.md)。下面明确区分“服务器终端”和“容器终端”；容器名字通常带 `shaf-` 前缀，按服务名识别，不猜编号。
+页面功能验收见[测试指南](testing-guide.md)，源码定位见[架构](architecture.md)。下面明确区分“服务器终端”和“容器终端”；容器名字通常带 `shaf-` 前缀，按服务名识别，不猜编号。默认项目目录是 `/opt/SHAF`；已部署到其他位置时沿用原路径，避免相对挂载指向空目录。
 
 ## 1. 面板查看状态与日志
 
@@ -10,10 +10,10 @@
 |---|---|---|
 | 服务运行情况 | 容器 → 编排 → shaf，或容器列表 | running、healthy、重启次数；running 不等于依赖全部正常 |
 | CPU/内存 | 概览/监控、容器资源监控 | 训练/导出时峰值，避免同时跑重任务 |
-| 镜像/缓存占盘 | 容器 → 概览 | 系统盘占用、镜像与构建缓存；运行数据另看数据盘 |
+| 磁盘占用 | 概览/监控；容器 → 概览 | 80GB 系统盘由系统、镜像/构建缓存、模型、数据库、日志和备份共用 |
 | 容器日志 | 目标容器 → 日志 | backend/MCP/classifier 报错；按时间、行数筛选或实时跟随 |
 | 进入服务 | 目标容器 → 终端 | backend 选 `/bin/bash`；mysql/frontend 可用 `/bin/sh` |
-| 业务文件 | 文件 → `/mnt/shaf-data/SHAF` | 在线查看、编辑、下载日志和报告 |
+| 业务文件 | 文件 → `/opt/SHAF` | 在线查看、编辑、下载日志和报告 |
 
 点击“停止”是停止容器，不是结束日志查看。没有作业运行时才能重启 backend；更改 `.env` 或镜像后需要重新创建，不只重启。**不使用编排“删除并删除文件”清理项目**，原路径接入可能连带删除源码/数据目录。[1Panel 编排](https://1panel.cn/docs/v2/user_manual/containers/compose/)
 
@@ -144,7 +144,7 @@ make ch10-train TRAIN_ARGS="--mode lora --batch-size 2 --eval-batch-size 8 --gra
 
 ### 5.1 一致备份：先停，再打包
 
-个人使用不要求每天配置备份平台；在改模型、升级代码或迁移数据前做一次即可。暂停计划任务/网页作业，以下在**服务器项目根目录**执行（先定义 `dc`）：
+个人使用不要求每天配置备份平台；在改模型、升级代码或迁移数据前做一次即可。先检查系统盘剩余空间，归档会额外占用空间；暂停计划任务/网页作业，以下在**服务器项目根目录**执行（先定义 `dc`）：
 
 ```bash
 (
@@ -185,18 +185,41 @@ dc --profile classifier up -d classifier
 
 确认无作业、先备份；Git 用户在服务器执行 `git status --short`、记提交号，再 `git pull --ff-only`。ZIP 用户上传新版本源码到临时目录，核对后更新代码文件，**不覆盖旧 `.env`、data、volumes、log 和缓存**。
 
-服务器项目根目录重新构建/发布：
+代码被打包进镜像，**只上传/拉取代码再点“重启”不会应用修复**。只构建、重新创建受影响的服务，不需要整套数据库重启。新终端先在服务器项目根目录定义简写：
 
 ```bash
-dc build mcp-logistics mcp-aftersales backend frontend
-dc up -d --force-recreate mcp-logistics mcp-aftersales backend frontend
-# 使用分类器时：
-dc --profile classifier up -d --build classifier
+cd /opt/SHAF
+dc() { sudo docker compose -f docker-compose.prod.yml "$@"; }
 ```
 
-只改 Nginx 用 `dc build frontend`、`dc up -d --force-recreate frontend`。改 `.env` 用 `dc up -d --force-recreate backend`；改监听地址则重新创建 frontend；分类器线程/批量设置改动也重新创建 classifier。后端重建后必要时在面板重启 frontend 刷新 Nginx DNS。
+**只改前端 Vue / Nginx：**
+
+```bash
+dc build frontend
+dc up -d --no-deps --force-recreate frontend
+```
+
+**只改后端 Python：**
+
+```bash
+dc build backend
+dc up -d --no-deps --force-recreate backend
+dc restart frontend
+```
+
+最后一步让 Nginx 重新解析 backend 容器地址，可在 1Panel 重启 frontend 完成。前后端都改时依次执行两组命令，前端会短暂中断。`--no-deps` 保持数据库等依赖服务不动，前提是这些依赖已经正常运行。
+
+改 MCP 时对对应服务执行同样的 build / up 流程；改分类器代码或依赖，用 `dc --profile classifier build classifier` 和 `dc --profile classifier up -d --no-deps --force-recreate classifier`。只改 `.env` 不需构建，但需重新创建受影响服务：后端配置对应 backend，监听地址对应 frontend，分类器线程/批量对应 classifier；后端重新创建后仍重启 frontend。
 
 已有 MySQL 不自动执行新迁移，逐个审核/应用尚未执行的 SQL并记录版本，不能整套重跑。回退用旧提交/源码和对应镜像；数据迁移需兼容回退或一致备份，不能只靠 Git。保留已验收镜像 ID/digest；不使用 `down -v`、清数据目录或全局卷清理排障。
+
+### 5.4 页面或功能出现代码问题
+
+1. 记录页面地址、复现步骤、预期/实际结果、时间和当前提交号；附截图、浏览器 Console/Network 报错及同一时间段的 backend 日志，隐去密钥。先区分配置/依赖故障和代码问题，不通过删数据或重装排障。
+2. 开发者在本地定位、修复并做针对性测试，提交可回退版本；服务器取得该版本后，按上节仅更新受影响服务。发布后刷新网页（必要时 Ctrl+F5），复测原问题及相关模块，查看容器状态/日志。
+3. **正常重启或重新创建容器不会清空当前挂载的数据库、知识库、模型和报告**，前提是保持同一项目路径、挂载配置和宿主数据目录。容器内未挂载的临时文件不受此保护；后端重启会中断当前聊天流和运行中的网页作业，发布前等待作业结束。
+
+若修复涉及数据库结构或已写入的错误数据，由开发者另提供迁移/修复及回退步骤；重启本身不会修复这些数据。新镜像构建成功后再替换容器，构建失败时保留旧实例继续排查。
 
 ## 6. 选读：自动化与长期服务维护
 
@@ -207,13 +230,13 @@ dc --profile classifier up -d --build classifier
 飞轮：页面选择“每 30 分钟”，脚本：
 
 ```bash
-/usr/bin/flock -n /run/lock/shaf-maintenance.lock /bin/sh -c 'cd /mnt/shaf-data/SHAF && /usr/bin/docker compose -f docker-compose.prod.yml exec -T backend make flywheel'
+/usr/bin/flock -n /run/lock/shaf-maintenance.lock /bin/sh -c 'cd /opt/SHAF && /usr/bin/docker compose -f docker-compose.prod.yml exec -T backend make flywheel'
 ```
 
 归类：每天 03:00，脚本：
 
 ```bash
-/usr/bin/flock -n /run/lock/shaf-maintenance.lock /bin/sh -c 'cd /mnt/shaf-data/SHAF && /usr/bin/docker compose -f docker-compose.prod.yml exec -T backend make classify-pool'
+/usr/bin/flock -n /run/lock/shaf-maintenance.lock /bin/sh -c 'cd /opt/SHAF && /usr/bin/docker compose -f docker-compose.prod.yml exec -T backend make classify-pool'
 ```
 
 不勾“在容器中执行”，这些脚本从宿主进入 backend；页面能立即执行、停用和查看报告。先核对服务器时区、目录及 Docker 位置（终端 `timedatectl`、`command -v docker`），做一次立即执行验证。任务需有 Docker 访问权限。[1Panel 计划任务](https://1panel.cn/docs/v2/user_manual/cronjobs/)
@@ -266,7 +289,7 @@ dc() { sudo docker compose -f docker-compose.prod.yml "$@"; }
 dc --profile classifier ps
 sudo docker stats --no-stream
 sudo docker system df
-df -h / /mnt/shaf-data
+df -h /
 dc logs --since=30m --tail=100 backend
 dc exec backend bash
 ```

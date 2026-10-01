@@ -1,4 +1,4 @@
-# Ubuntu 自托管入口：独立于旧开发 Compose；持久数据位于仓库所在数据盘。
+# Ubuntu 自托管入口：独立于旧开发 Compose；持久数据绑定项目目录下的宿主文件夹。
 name: shaf
 x-runtime: &runtime
   restart: unless-stopped
