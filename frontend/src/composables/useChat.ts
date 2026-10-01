@@ -6,6 +6,17 @@ import type { Action, ChatMessage, Citation, Conversation, Interruption } from '
 
 const SESSION_KEY = 'mewhelp_session_id'
 const CONV_KEY = 'mewhelp_conversation_id'
+
+// HTTP 公网 IP 无 randomUUID；getRandomValues 仍可用，保留 UUID v4 格式与随机强度。
+function createUserId(): string {
+  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID()
+  const bytes = crypto.getRandomValues(new Uint8Array(16))
+  bytes[6] = (bytes[6]! & 0x0f) | 0x40
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
+
 const replayActions = new Map<string, Action[]>([
   [
     '抱歉,这个问题我暂时没有查到确切信息,不敢乱答。建议您联系人工客服进一步确认,以免给您错误的指引。',
@@ -20,7 +31,7 @@ const replayActions = new Map<string, Action[]>([
 export function useChat() {
   let userId = localStorage.getItem(SESSION_KEY)
   if (!userId) {
-    userId = crypto.randomUUID()
+    userId = createUserId()
     localStorage.setItem(SESSION_KEY, userId)
   }
   const storedId = Number(localStorage.getItem(CONV_KEY))

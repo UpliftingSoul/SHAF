@@ -1,4 +1,4 @@
-/** 会话回归：取消后旧响应隔离、明确取消工单，以及历史失败后的可重试行为。 */
+/** 会话回归：HTTP 身份兼容、取消后旧响应隔离、工单取消及历史重试。 */
 import { effectScope } from 'vue'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useChat } from '../../src/composables/useChat'
@@ -8,8 +8,8 @@ import { request } from '../../src/api/http'
 vi.mock('../../src/api/sse', () => ({ streamPost: vi.fn() }))
 vi.mock('../../src/api/http', () => ({ request: vi.fn(), post: vi.fn(), query: () => '' }))
 const scopes: ReturnType<typeof effectScope>[] = []
-function setup() {
-  localStorage.clear()
+function setup(clearStorage = true) {
+  if (clearStorage) localStorage.clear()
   vi.mocked(request).mockResolvedValue({ items: [] })
   const scope = effectScope()
   scopes.push(scope)
@@ -17,10 +17,42 @@ function setup() {
 }
 afterEach(() => {
   scopes.splice(0).forEach((scope) => scope.stop())
+  vi.unstubAllGlobals()
   vi.clearAllMocks()
 })
 
 describe('聊天会话隔离', () => {
+  it('HTTP 公网 IP 缺少 randomUUID 时可首次聊天，重新进入仍沿用同一身份', async () => {
+    vi.stubGlobal('crypto', { getRandomValues: crypto.getRandomValues.bind(crypto) })
+    const chat = setup()
+    const userId = localStorage.getItem('mewhelp_session_id')
+    expect(userId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+    vi.mocked(streamPost).mockResolvedValue()
+    await chat.send('你好')
+    expect(streamPost).toHaveBeenCalledWith(
+      '/api/chat',
+      expect.objectContaining({ user_id: userId }),
+      expect.any(AbortSignal),
+      expect.any(Function),
+    )
+    setup(false)
+    expect(localStorage.getItem('mewhelp_session_id')).toBe(userId)
+  })
+  it('已有身份在 HTTP 模式下继续使用，不重新分配会话标识', async () => {
+    localStorage.clear()
+    localStorage.setItem('mewhelp_session_id', 'existing-user')
+    vi.stubGlobal('crypto', {})
+    const chat = setup(false)
+    vi.mocked(streamPost).mockResolvedValue()
+    await chat.send('你好')
+    expect(streamPost).toHaveBeenCalledWith(
+      '/api/chat',
+      expect.objectContaining({ user_id: 'existing-user' }),
+      expect.any(AbortSignal),
+      expect.any(Function),
+    )
+    expect(localStorage.getItem('mewhelp_session_id')).toBe('existing-user')
+  })
   it('新会话后旧流不能改会话号或内容', async () => {
     const chat = setup()
     let callback!: Parameters<typeof streamPost>[3]
