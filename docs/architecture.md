@@ -78,7 +78,7 @@ Langfuse Cloud 提供 trace 与意图 Token 统计；成本脚本分页读取 Ob
 - 调试任务：查看后端返回日志；make 白名单没有消除数据库、模型、平台和计算资源的前置条件。
 - 扩展文件：同时更新下方逐文件清单，再执行 `python scripts/check_architecture.py`。
 
-开发启动见 README；容器配置与尚需完成的服务编排见 DEPLOY。当前进程内图与作业状态采用单 worker。不要在此次前端改造中擅自改变历史数据库、卷名和业务语义。
+开发启动见 README；云端部署见 DEPLOY，日常维护及页面验收见运维/测试指南。生产 Compose 使用单 worker、CPU 后台镜像、独立 MCP 与 ONNX 服务，Langfuse 接云端。持久数据放仓库所在数据盘的 data/、volumes/；这是独立首次部署入口，不自动迁移旧 Compose 数据卷。真实容器与外部服务仍需服务器验收。
 
 ## 5. 正式项目文件清单（100%）
 
@@ -90,14 +90,17 @@ Langfuse Cloud 提供 trace 与意图 Token 统计；成本脚本分页读取 Ob
 |---|---|
 | `.dockerignore` | 后端构建上下文排除密钥、Git、本地环境、前端与运行数据。 |
 | `.env.example` | 后端配置模板：模型、数据库、MCP、分类器、预算、CORS 和观测配置；仅含占位值。 |
+| `.env.deploy.example` | Ubuntu 生产模板：随机密码占位、官方模型 API、Langfuse Cloud 及 CPU LoRA/推理参数。 |
 | `.gitattributes` | 统一文本换行与编码行为，降低跨 Windows / Ubuntu 协作差异。 |
 | `.gitignore` | 排除密钥、简介原稿、虚拟环境、依赖、日志、checkpoint 和训练产物。 |
 | `DEPLOY.md` | 当前分离架构的容器边界、配置、持久化、启动与尚需云端验收的前置。 |
-| `Dockerfile.backend` | Python/uv 后端镜像，保留 Linux 作业工具，单 worker 启动 FastAPI。 |
+| `Dockerfile.backend` | Python/uv 多阶段镜像：runtime 用于 API/MCP，cpu 增加训练依赖；单 worker FastAPI。 |
+| `Dockerfile.classifier` | 独立 ONNX CPU 推理镜像，不安装训练组；权重从 data/ 只读挂载。 |
 | `Makefile` | 离线与服务管理目标；页面作业复用其中的白名单目标，依赖 Ubuntu/POSIX。 |
 | `README.md` | 项目定位、技术栈、本地开发入口、功能模块与导航。 |
 | `docker-compose.app.yml` | Vue/Nginx 与 FastAPI 两个应用容器；与原基础设施配置合并使用。 |
 | `docker-compose.langfuse.yml` | 独立 Langfuse web/worker、Postgres、ClickHouse、Redis 与对象存储栈。 |
+| `docker-compose.prod.yml` | Ubuntu 主部署入口：应用、MySQL、Milvus/etcd/MinIO、MCP、可选启动分类器，内网地址与数据盘持久挂载。 |
 | `docker-compose.yml` | MySQL、Milvus Standalone、etcd、MinIO 及原命名的数据卷、初始化 SQL。 |
 | `pyproject.toml` | Python 依赖、dev/ml/inference 分组、可选 cpu 安装来源及 pytest 配置；包元数据旧名保留兼容。 |
 | `uv.lock` | 精确锁定 Python 依赖解析结果，用于可重复同步。 |
@@ -109,13 +112,13 @@ Langfuse Cloud 提供 trace 与意图 Token 统计；成本脚本分页读取 Ob
 | `app/__init__.py` | Python 包标记，无独立业务逻辑。 |
 | `app/api/__init__.py` | Python 包标记，无独立业务逻辑。 |
 | `app/api/acceptance.py` | 分类器九项验收、语料/模型产物、评测/扫描/错例与在线试分类。 |
-| `app/api/actions.py` | 用户明确提交的建工单、退款与中断续跑；校验会话和订单归属。 |
+| `app/api/actions.py` | 用户明确提交的建工单、退款与中断续跑；接口校验输入，不提供登录鉴权。 |
 | `app/api/admin.py` | 六模块后台卡片聚合，把各模块健康、待办和缺产物状态归一。 |
 | `app/api/agent.py` | 非流式 Agent 入口，返回答案、工具轨迹及建议动作，复用图运行时。 |
 | `app/api/chat.py` | 用户会话流式聊天入口，处理 graph 事件、引用、操作卡、中断与 SSE 错误。 |
 | `app/api/conversations.py` | 会话列表、历史消息与会话定位，供聊天侧栏和恢复使用。 |
 | `app/api/extract.py` | 结构化信息提取接口，使用提取 schema 和模型客户端。 |
-| `app/api/feedback.py` | 消息反馈落库；无帮助反馈进入待补知识问题池。 |
+| `app/api/feedback.py` | 正向反馈记日志，负向反馈写问题池并尽力关联同轮召回快照。 |
 | `app/api/jobs.py` | 白名单作业发起、查询日志与停止入口，不接受任意命令。 |
 | `app/api/kb.py` | 知识概览、切块预览、手工入库、向量化、检索与挖掘待审操作。 |
 | `app/api/observability.py` | 分别聚合磁盘成本/校准报告与数据库评估趋势，依赖失败按块隔离。 |
@@ -471,7 +474,11 @@ Langfuse Cloud 提供 trace 与意图 Token 统计；成本脚本分页读取 Ob
 |---|---|
 | `docs/architecture.md` | 本架构手册，含系统链路、维护入口及全部正式项目文件清单。 |
 | `docs/classifier-observability-upgrade-plan.md` | 云端观测与可选 LoRA 升级范围、兼容方案、使用入口和验证边界。 |
+| `docs/deployment-handbook-plan.md` | 本轮部署与使用手册规划、确定方案、核对顺序和验证边界。 |
 | `docs/frontend-separation-plan.md` | 本阶段核心规划、已确认范围、迁移原则和分阶段验证记录。 |
+| `docs/milvus-cloud-migration-plan.md` | 备用云向量库接入规划：鉴权小改动、能力验收、完整索引迁移及回退。 |
+| `docs/operations.md` | 容器/日志/数据库/trace 运维、知识及模型维护、定时任务、备份恢复与更新。 |
+| `docs/testing-guide.md` | 十二个页面、客服动作、知识审核、飞轮、报告及分类器的使用与测试判据。 |
 | `docs/superpowers/plans/2026-07-13-ch01-pure-chat.md` | 纯聊天与结构化提取历史实施计划。仅作背景，以当前源码及分离规划为准。 |
 | `docs/superpowers/plans/2026-07-14-ch02-function-calling.md` | Function Calling 业务工具历史实施计划。仅作背景，以当前源码及分离规划为准。 |
 | `docs/superpowers/plans/2026-07-14-ch03-rag-knowledge-base.md` | 知识库入库与挖掘历史实施计划。仅作背景，以当前源码及分离规划为准。 |
@@ -500,7 +507,9 @@ Langfuse Cloud 提供 trace 与意图 Token 统计；成本脚本分页读取 Ob
 | `.venv/` | uv 管理的项目 Python 环境；不提交第三方包，依据 uv.lock 重建 |
 | `frontend/node_modules/` | npm 依赖；依据 package-lock.json 重建 |
 | `frontend/dist/` | Vue 构建产物；镜像从构建阶段复制，源码仓库不提交 |
-| `.env`、`.env.*`（例外 `.env.example`） | 实际配置与密钥；不输出、不提交 |
+| `.env`、`.env.*`（例外 `.env.example`、`.env.deploy.example`） | 实际配置与密钥；不输出、不提交 |
+| `DEPLOY_old_reference*` | 本地只读参考材料；不编辑、不提交，以当前源码与主手册为准 |
+| `volumes/`、`model-cache/`、`backups/` | 生产持久数据库、模型下载缓存和一致备份；不提交，备份应另存副本 |
 | `Introduction.txt` | 用户提供的本地项目简介原稿；已用于 README 定位，不提交 |
 | `.idea/`、`.superpowers/`、`dev-notes/` | 本地 IDE、助手及本阶段整理辅助材料；不作为部署源码 |
 | `__pycache__/`、`.pytest_cache/`、`*.pyc` | Python 缓存，可重建 |
