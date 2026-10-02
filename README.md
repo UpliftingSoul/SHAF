@@ -76,7 +76,6 @@ npm run dev
 | `mcp_servers/` | 物流与售后 MCP 服务 |
 | `sql/` | 建表、种子数据及模块迁移；MySQL 空卷首启按文件名执行 |
 | `scripts/` | 数据初始化、离线评估、知识维护与分类训练 |
-| `docs/superpowers/` | 分模块设计与实现计划；历史设计与当前源码不一致时，以源码为准 |
 
 逐文件说明见 [架构手册](docs/architecture.md)，前后端分离决策和验证边界见 [改造规划](docs/frontend-separation-plan.md)。数据库、卷名及浏览器身份键保留现有兼容标识，避免因项目展示名称调整导致数据迁移。
 

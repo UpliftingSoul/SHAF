@@ -24,6 +24,8 @@ model-cache/
 backups/
 .pytest_cache/
 .superpowers/
+# 开发过程规划草稿只保存在本地，不作为正式项目文档。
+/docs/superpowers/
 data/*.db*
 data/*.sqlite*
 dev-notes/

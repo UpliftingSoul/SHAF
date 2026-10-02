@@ -483,26 +483,6 @@ Langfuse Cloud 提供 trace 与意图 Token 统计；成本脚本分页读取 Ob
 | `docs/milvus-cloud-migration-plan.md` | 备用云向量库接入规划：鉴权小改动、能力验收、完整索引迁移及回退。 |
 | `docs/operations.md` | 容器/日志/数据库/trace 运维、知识及模型维护、定时任务、备份恢复与更新。 |
 | `docs/testing-guide.md` | 十二个页面、客服动作、知识审核、飞轮、报告及分类器的使用与测试判据。 |
-| `docs/superpowers/plans/2026-07-13-ch01-pure-chat.md` | 纯聊天与结构化提取历史实施计划。仅作背景，以当前源码及分离规划为准。 |
-| `docs/superpowers/plans/2026-07-14-ch02-function-calling.md` | Function Calling 业务工具历史实施计划。仅作背景，以当前源码及分离规划为准。 |
-| `docs/superpowers/plans/2026-07-14-ch03-rag-knowledge-base.md` | 知识库入库与挖掘历史实施计划。仅作背景，以当前源码及分离规划为准。 |
-| `docs/superpowers/plans/2026-07-15-ch04-hybrid-retrieval-rerank-eval.md` | 混合检索、重排与 RAG 评估历史实施计划。仅作背景，以当前源码及分离规划为准。 |
-| `docs/superpowers/plans/2026-07-15-ch05-workflow-agent.md` | 固定 Workflow 与 ReAct Agent历史实施计划。仅作背景，以当前源码及分离规划为准。 |
-| `docs/superpowers/plans/2026-07-16-ch06-intent-recognition.md` | 意图、指代和退款中断历史实施计划。仅作背景，以当前源码及分离规划为准。 |
-| `docs/superpowers/plans/2026-07-16-ch07-context-management.md` | 上下文分层、摘要与缓存历史实施计划。仅作背景，以当前源码及分离规划为准。 |
-| `docs/superpowers/plans/2026-07-17-ch08-tool-system.md` | 统一工具、MCP、确认和审计历史实施计划。仅作背景，以当前源码及分离规划为准。 |
-| `docs/superpowers/plans/2026-07-17-ch09-observability-flywheel.md` | 可观测与知识飞轮历史实施计划。仅作背景，以当前源码及分离规划为准。 |
-| `docs/superpowers/plans/2026-07-18-ch10-topic-classifier.md` | 多标签主题分类器历史实施计划。仅作背景，以当前源码及分离规划为准。 |
-| `docs/superpowers/specs/2026-07-13-ch01-pure-chat-design.md` | 纯聊天与结构化提取历史设计说明。仅作背景，以当前源码及分离规划为准。 |
-| `docs/superpowers/specs/2026-07-13-ch02-function-calling-design.md` | Function Calling 业务工具历史设计说明。仅作背景，以当前源码及分离规划为准。 |
-| `docs/superpowers/specs/2026-07-14-ch03-rag-knowledge-base-design.md` | 知识库入库与挖掘历史设计说明。仅作背景，以当前源码及分离规划为准。 |
-| `docs/superpowers/specs/2026-07-14-ch04-hybrid-retrieval-rerank-eval-design.md` | 混合检索、重排与 RAG 评估历史设计说明。仅作背景，以当前源码及分离规划为准。 |
-| `docs/superpowers/specs/2026-07-15-ch05-workflow-agent-design.md` | 固定 Workflow 与 ReAct Agent历史设计说明。仅作背景，以当前源码及分离规划为准。 |
-| `docs/superpowers/specs/2026-07-16-ch06-intent-recognition-design.md` | 意图、指代和退款中断历史设计说明。仅作背景，以当前源码及分离规划为准。 |
-| `docs/superpowers/specs/2026-07-16-ch07-context-management-design.md` | 上下文分层、摘要与缓存历史设计说明。仅作背景，以当前源码及分离规划为准。 |
-| `docs/superpowers/specs/2026-07-17-ch08-tool-system-design.md` | 统一工具、MCP、确认和审计历史设计说明。仅作背景，以当前源码及分离规划为准。 |
-| `docs/superpowers/specs/2026-07-17-ch09-observability-flywheel-design.md` | 可观测与知识飞轮历史设计说明。仅作背景，以当前源码及分离规划为准。 |
-| `docs/superpowers/specs/2026-07-18-ch10-topic-classifier-design.md` | 多标签主题分类器历史设计说明。仅作背景，以当前源码及分离规划为准。 |
 
 ## 6. 本地忽略目录与运行产物
 
@@ -516,6 +496,7 @@ Langfuse Cloud 提供 trace 与意图 Token 统计；成本脚本分页读取 Ob
 | `volumes/`、`model-cache/`、`backups/` | 生产持久数据库、模型下载缓存和一致备份；不提交，备份应另存副本 |
 | `Introduction.txt` | 用户提供的本地项目简介原稿；已用于 README 定位，不提交 |
 | `.idea/`、`.superpowers/`、`dev-notes/` | 本地 IDE、助手及本阶段整理辅助材料；不作为部署源码 |
+| `docs/superpowers/` | 本地开发规划草稿；不提交，不作为实现或部署依据 |
 | `__pycache__/`、`.pytest_cache/`、`*.pyc` | Python 缓存，可重建 |
 | `coverage/`、`playwright-report/`、`test-results/`、`*.tsbuildinfo` | 测试报告、截图与编译缓存，可重建 |
 | `data/*.db*`、`data/*.sqlite*` | 会话 checkpoint 及本地数据库；部署时持久化和备份 |
