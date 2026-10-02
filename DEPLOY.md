@@ -2,7 +2,7 @@
 
 目标：在 Ubuntu 云服务器运行完整项目，通过笔记本浏览器测试、展示各模块。配置按 x86_64、8 核 CPU、16GB 内存、80GB 系统盘 + 100GB 数据盘安排；训练和大型评估串行执行。
 
-本次服务器同时承担开发与调试：核心助手 SSH 接入后，以服务器 `/mnt/shaf-data/SHAF` 为实际工作目录，修改源码/配置、编写文档、测试、Git 提交与推送均在服务器执行；笔记本负责连接和浏览器访问。当前使用 root，`~` 指 `/root`，可省略命令示例中的 `sudo`。root 文件权限与 GitHub 仓库权限独立，第 9 节配置仓库写授权。
+源码、配置模板和文档在笔记本项目目录修改、测试、提交并推送；服务器拉取版本，构建容器并验收实际功能。SSH 用于查看日志/状态、调整不入 Git 的 `.env` 和宿主配置、执行部署，不直接编辑服务器上的 Git 受管文件。当前使用 root，`~` 指 `/root`，可省略命令示例中的 `sudo`；root 文件权限与第 9 节的 GitHub 仓库授权独立。
 
 **使用标准 Nginx，1Panel 管理容器、文件、日志和计划任务。** 不安装 OpenResty，不使用面板“网站”或“运行环境”启动项目。第 1–8 节是个人使用主线；域名、HTTPS 与正式上线内容放在第 10 节选读。
 
@@ -15,7 +15,7 @@
 | **主选：SSH 隧道** | `http://127.0.0.1:8080` | 前端只监听服务器回环地址，不开放网页公网端口 |
 | 可选：公网 IP | `http://服务器公网IP:8080` | 前端监听所有 IPv4 地址；云防火墙仅允许本人/展示对象 IP |
 
-SSH 打开的是服务器终端，并不提供图形浏览器。网页在**笔记本浏览器**打开，代码、数据库和计算全部在服务器；两种方式都不需要域名。
+SSH 打开的是服务器终端，并不提供图形浏览器。网页在**笔记本浏览器**打开，已部署程序、数据库和业务计算运行在服务器；两种方式都不需要域名。
 
 链路：浏览器 → **前端 Nginx**（Vue 页面、`/api` 转发）→ **FastAPI** → 数据库/模型/MCP。公网 IP 方式也直接访问这个 Nginx，没有外层代理。
 
@@ -137,7 +137,7 @@ sudo chown "$(id -un):$(id -gn)" /mnt/shaf-data/SHAF
 
 **可视化方式：** 笔记本登录 GitHub 私有仓库下载 ZIP；在 1Panel“文件”上传、解压，整理为 `/mnt/shaf-data/SHAF`。确认此目录直接包含 `app/`、`frontend/`、`sql/`、`docker-compose.prod.yml`，不多套一层目录。FinalShell 上传也可，不传 `.venv/`、`node_modules/`、密钥或历史 Git 备份；记录下载的提交号。
 
-**Git 方式（本次主选）：** 按第 9 节添加仅对 SHAF 仓库生效、允许写入的 Deploy key 后，在服务器终端执行：
+**Git 方式（本次主选）：** 按第 9 节添加 SHAF 仓库专用 Deploy key 后，在服务器终端执行：
 
 ```bash
 git clone git@github.com:UpliftingSoul/SHAF.git /mnt/shaf-data/SHAF
@@ -331,9 +331,9 @@ health 只证明进程存活；未生成新报告时显示缺产物正常。全�
 
 恢复 SSH 专用：改回 `FRONTEND_BIND=127.0.0.1`、重新创建 frontend、删除云侧 8080 放行。切换网址会改变浏览器本地会话选择，服务器数据并未丢失。
 
-## 9. GitHub 授权与远程工作目录
+## 9. 私有仓库访问
 
-本次需要在服务器直接 clone/pull/commit/push，使用仓库专用的**可写 Deploy key**。它只授权 SHAF，不需要配置整个 GitHub 账号的访问密钥。SSH 登录服务器的密钥与此 GitHub 密钥是两套凭据，root 身份不会自动获得 GitHub 推送权限。
+服务器通过仓库专用 Deploy key 执行 clone/pull，只需读取权限；本地开发端负责提交与推送。已有可写 Deploy key 可以继续使用，无需更换或重新部署。它只授权 SHAF，不需要配置整个 GitHub 账号的访问密钥。SSH 登录服务器的密钥与此 GitHub 密钥是两套凭据，root 身份不会自动获得 GitHub 仓库权限。
 
 服务器终端生成独立密钥；已有同名文件则复用，不重复执行生成命令或覆盖原文件：
 
@@ -344,9 +344,9 @@ ssh-keygen -t ed25519 -f ~/.ssh/shaf_deploy -C shaf-server
 cat ~/.ssh/shaf_deploy.pub
 ```
 
-GitHub 仓库 **Settings → Deploy keys → Add deploy key** 粘贴公钥，**勾选 Allow write access** 后保存。[官方说明](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/managing-deploy-keys#deploy-keys)
+GitHub 仓库 **Settings → Deploy keys → Add deploy key** 粘贴公钥并保存。常规部署不勾选 Allow write access；只有确需服务器推送时才授予写权限。[官方说明](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/managing-deploy-keys#deploy-keys)
 
-已经添加为只读时，在该仓库删除对应的只读授权条目，再用原公钥添加并勾写权限即可；**不删除或重新生成服务器上的密钥文件**，不需要重做部署或重启容器。私钥保留服务器，不上传 Git 或发到聊天。
+私钥保留服务器，不上传 Git 或发到聊天。
 
 服务器 `~/.ssh/config` 添加：
 
@@ -360,17 +360,17 @@ Host github.com
 
 已有 github.com 设置则合并；首次连接核对[官方主机指纹](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints)，之后按第 3 节克隆。
 
-克隆后，在服务器项目目录设置提交身份；替换下面两项为自己的提交名和 GitHub 已验证邮箱或账号实际 noreply 邮箱，仅配置当前仓库：
+克隆后，在服务器项目目录验收：
 
 ```bash
 cd /mnt/shaf-data/SHAF
-git config user.name "你的Git提交名"
-git config user.email "你的Git提交邮箱"
 git remote -v
+git branch --show-current
 git status --short
+git log -1 --oneline
 ```
 
-远端应为 `git@github.com:UpliftingSoul/SHAF.git`。SSH 连接成功、clone 成功只证明能读取；GitHub 页面应明确显示该 key 有写权限，首次实际推送再确认可写。后续执行方式见[运维手册第 5 节](docs/operations.md#5-修改前备份与版本更新)。
+远端应为 `git@github.com:UpliftingSoul/SHAF.git`，分支为 main，工作区干净，提交号与目标版本一致。服务器不做日常提交，因此不要求配置提交身份；已有配置可保留。本地提交身份按仓库设置。版本发布见[运维手册第 5 节](docs/operations.md#5-修改前备份与版本更新)。
 
 ## 10. 选读：以后正式对外上线
 
