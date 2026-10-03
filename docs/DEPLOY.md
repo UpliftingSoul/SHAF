@@ -6,7 +6,7 @@
 
 **使用标准 Nginx，1Panel 管理容器、文件、日志和计划任务。** 不安装 OpenResty，不使用面板“网站”或“运行环境”启动项目。第 1–8 节是个人使用主线；域名、HTTPS 与正式上线内容放在第 10 节选读。
 
-入口：`docker-compose.prod.yml`。配套：[运维](docs/operations.md)、[网站使用与测试](docs/testing-guide.md)、[Milvus 云端备用规划](docs/milvus-cloud-migration-plan.md)、[架构](docs/architecture.md)。面板步骤依据 1Panel V2 文档和 v2.3.2 源码；尚未在真实 1Panel/Ubuntu 上机验收，部署时逐节确认。
+入口：`docker-compose.prod.yml`。配套：[运维](operations.md)、[快速修正](quick-fixes.md)、[网站使用与测试](testing-guide.md)、[Milvus 云端备用规划](milvus-cloud-migration-plan.md)、[架构](architecture.md)。面板步骤依据 1Panel V2 文档和 v2.3.2 源码；尚未在真实 1Panel/Ubuntu 上机验收，部署时逐节确认。
 
 ## 1. 访问方式与服务
 
@@ -274,7 +274,7 @@ uv run --no-sync python scripts/smoke_toolcall.py
 | `proxy_buffering off` / `proxy_cache off` | SSE 增量及时到达 |
 | `proxy_read_timeout 600s` | 留出模型处理等待时间 |
 
-frontend 容器终端执行 `nginx -t` 检查配置。修改源码中的配置后需**重新构建并创建 frontend**，重启不会更新镜像内文件。具体操作见运维手册。[Nginx 入门](https://nginx.org/en/docs/beginners_guide.html)
+frontend 容器终端执行 `nginx -t` 检查配置。镜像发布时，修改源码中的配置后重新构建并创建 frontend；只重启不会同步宿主文件。调试时也可复制配置进容器、校验后 reload，见[快速修正](quick-fixes.md)。[Nginx 入门](https://nginx.org/en/docs/beginners_guide.html)
 
 ## 7. 分类器就绪
 
@@ -316,7 +316,7 @@ python -c 'import urllib.request; print(urllib.request.urlopen("http://127.0.0.1
 5. 分类器上线后单句实验、批量归类和主题页通过。
 6. 无作业运行时在面板重启 backend，历史保留；中断续跑按测试指南验证。
 
-health 只证明进程存活；未生成新报告时显示缺产物正常。全部模块验收见[测试指南](docs/testing-guide.md)。
+health 只证明进程存活；未生成新报告时显示缺产物正常。全部模块验收见[测试指南](testing-guide.md)。
 
 ### 8.2 可选：公网 IP 访问
 
@@ -370,7 +370,7 @@ git status --short
 git log -1 --oneline
 ```
 
-远端应为 `git@github.com:UpliftingSoul/SHAF.git`，分支为 main，工作区干净，提交号与目标版本一致。服务器不做日常提交，因此不要求配置提交身份；已有配置可保留。本地提交身份按仓库设置。版本发布见[运维手册第 5 节](docs/operations.md#5-修改前备份与版本更新)。
+远端应为 `git@github.com:UpliftingSoul/SHAF.git`，分支为 main，工作区干净，提交号与目标版本一致。服务器不做日常提交，因此不要求配置提交身份；已有配置可保留。本地提交身份按仓库设置。版本发布见[运维手册第 5 节](operations.md#5-修改前备份与版本更新)。
 
 ## 10. 选读：以后正式对外上线
 

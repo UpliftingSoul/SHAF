@@ -1,5 +1,5 @@
 # 应用容器补充配置：与 docker-compose.yml 合并，连接其中的基础设施服务。
-# MCP、分类器及 Langfuse 需要按 DEPLOY.md 配置为云端容器地址。
+# MCP、分类器及 Langfuse 需要按 docs/DEPLOY.md 配置为云端容器地址。
 services:
   backend:
     build:

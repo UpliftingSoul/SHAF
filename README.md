@@ -30,14 +30,15 @@ SHAF 是面向电商售后场景的智能客服框架，以确定性 Workflow �
 
 浏览器访问 Vue 页面；开发时由 Vite、生产时由 Nginx 提供页面并代理 `/api`。FastAPI 负责业务 API、流式对话和图运行生命周期，调用 MySQL、Milvus、模型与 MCP 服务。MySQL 保存业务记录，SQLite checkpoint 保存图线程与中断状态；报表和分类器承担独立评估及知识维护职能。
 
-生产使用 Ubuntu 云端容器部署，Vue/Nginx 与 FastAPI 分别运行；MySQL、Milvus Standalone（含 etcd/MinIO）、两个 MCP 和 ONNX 分类器独立运行，Langfuse 使用云端。本地只做开发。生产入口为 `docker-compose.prod.yml`，含 CPU 训练镜像与分阶段初始化步骤；真实服务器构建和业务验收按 [部署手册](DEPLOY.md)执行。
+生产使用 Ubuntu 云端容器部署，Vue/Nginx 与 FastAPI 分别运行；MySQL、Milvus Standalone（含 etcd/MinIO）、两个 MCP 和 ONNX 分类器独立运行，Langfuse 使用云端。本地只做开发。生产入口为 `docker-compose.prod.yml`，含 CPU 训练镜像与分阶段初始化步骤；真实服务器构建和业务验收按 [部署手册](docs/DEPLOY.md)执行。
 
 当前部署手册以个人单机测试/展示为主：1Panel 管理容器和文件，前端保留标准 Nginx；通过 SSH 隧道或受来源 IP 限制的公网 IP 访问。正式上线的域名、HTTPS、认证及长期运维保留为选读内容。
 
 | 手册 | 用途 |
 |---|---|
-| [部署](DEPLOY.md) | 从空服务器准备到首次服务验收 |
+| [部署](docs/DEPLOY.md) | 从空服务器准备到首次服务验收 |
 | [运维](docs/operations.md) | 数据库、日志、trace、调度、备份恢复与更新 |
+| [快速修正](docs/quick-fixes.md) | 个人调试中的局部修补、适用边界及镜像固化 |
 | [网站使用与测试](docs/testing-guide.md) | 十二个页面及核心业务链路的操作与判据 |
 | [Milvus 云端备用规划](docs/milvus-cloud-migration-plan.md) | 后续切换云端的最小改动、索引迁移与回退 |
 

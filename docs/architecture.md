@@ -97,7 +97,6 @@ Langfuse Cloud 提供 trace 与意图 Token 统计；成本脚本分页读取 Ob
 | `.env.deploy.example` | Ubuntu 模板：随机密码、官方模型 API、Langfuse Cloud、CPU LoRA/推理参数及前端监听地址。 |
 | `.gitattributes` | 统一文本换行与编码行为，降低跨 Windows / Ubuntu 协作差异。 |
 | `.gitignore` | 排除密钥、简介原稿、虚拟环境、依赖、日志、checkpoint 和训练产物。 |
-| `DEPLOY.md` | 个人单机主线：1Panel 管理、标准 Nginx、SSH/受限公网 IP、初始化验收；正式上线配置选读。 |
 | `Dockerfile.backend` | Python/uv 多阶段镜像：runtime 用于 API/MCP，cpu 增加训练依赖；单 worker FastAPI。 |
 | `Dockerfile.classifier` | 独立 ONNX CPU 推理镜像，不安装训练组；权重从 data/ 只读挂载。 |
 | `Makefile` | 离线与服务管理目标；页面作业复用其中的白名单目标，依赖 Ubuntu/POSIX。 |
@@ -477,11 +476,13 @@ Langfuse Cloud 提供 trace 与意图 Token 统计；成本脚本分页读取 Ob
 | 文件 | 职责与维护提示 |
 |---|---|
 | `docs/architecture.md` | 本架构手册，含系统链路、维护入口及全部正式项目文件清单。 |
+| `docs/DEPLOY.md` | 个人单机主线：1Panel 管理、标准 Nginx、SSH/受限公网 IP、初始化验收；正式上线配置选读。 |
 | `docs/classifier-observability-upgrade-plan.md` | 云端观测与可选 LoRA 升级范围、兼容方案、使用入口和验证边界。 |
 | `docs/deployment-handbook-plan.md` | 本轮部署与使用手册规划、确定方案、核对顺序和验证边界。 |
 | `docs/frontend-separation-plan.md` | 本阶段核心规划、已确认范围、迁移原则和分阶段验证记录。 |
 | `docs/milvus-cloud-migration-plan.md` | 备用云向量库接入规划：鉴权小改动、能力验收、完整索引迁移及回退。 |
 | `docs/operations.md` | 容器/日志/数据库/trace 运维、知识及模型维护、定时任务、备份恢复与更新。 |
+| `docs/quick-fixes.md` | 个人调试的文件复制、服务重启/配置重载、适用边界及镜像固化。 |
 | `docs/testing-guide.md` | 十二个页面、客服动作、知识审核、飞轮、报告及分类器的使用与测试判据。 |
 
 ## 6. 本地忽略目录与运行产物
