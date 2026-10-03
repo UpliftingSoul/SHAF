@@ -261,16 +261,18 @@ dc restart frontend
 
 ### 6.3 可视化 SQL 客户端与种子维护
 
-喜欢表格浏览时，笔记本用 DBeaver/Navicat 的 SSH 隧道连接。主配置不暴露 MySQL，可在服务器 `/tmp/shaf-db-access.yml` 创建临时覆盖：
+喜欢表格浏览时，笔记本用 DBeaver/Navicat 的 SSH 隧道连接。生产 Compose 将 MySQL 映射到**服务器回环地址 `127.0.0.1:3306`**，不在云防火墙开放 3306。
 
-```yaml
-# 运维临时入口，仅服务器回环可达。
-services:
-  mysql:
-    ports: ["127.0.0.1:13306:3306"]
+首次应用端口配置时，服务器拉取已提交版本，确认宿主 3306 未被其他服务占用；无聊天/作业运行时，在项目根目录使用第 5.3 节的 `dc` 简写执行：
+
+```bash
+dc config --quiet
+dc up -d --no-deps --force-recreate mysql
 ```
 
-维护时服务器执行 `dc -f /tmp/shaf-db-access.yml up -d mysql`。客户端 SSH 填服务器账号/IP，数据库填 `127.0.0.1:13306`、库 `mewhelp`，使用测试所需账号；建议只读：
+仅重新创建 mysql，无需构建镜像；原 `volumes/mysql` 挂载保留，已有库不重新初始化。数据库连接会短暂中断，完成后确认 mysql healthy、网页恢复正常；不同时使用旧临时端口覆盖文件。
+
+客户端启用 SSH 隧道，SSH 填服务器账号/IP及实际认证方式；数据库主机填 `127.0.0.1`、端口 `3306`、库 `mewhelp`，账号 `shaf`，密码为 `.env` 的 `MYSQL_PASSWORD`。这里的数据库地址由 SSH 服务器访问，不是笔记本本机。仅查看时可单独创建只读账号：
 
 ```sql
 -- 在 mysql root 会话执行，密码改随机值；只授予查看权限。
@@ -278,7 +280,7 @@ CREATE USER 'shaf_reader'@'%' IDENTIFIED BY '替换为随机密码';
 GRANT SELECT, SHOW VIEW ON mewhelp.* TO 'shaf_reader'@'%';
 ```
 
-root 会话用 `mysql -uroot -p` 和 `MYSQL_ROOT_PASSWORD`。完成后 `dc up -d mysql` 恢复不映射端口，必要时重新创建 backend 并重启 frontend 验证重连。**此期间不用面板保存编排/环境变量**，避免多文件覆盖与 `.env` 处理混用；不在云防火墙开 3306/13306。
+root 会话用 `mysql -uroot -p` 和 `MYSQL_ROOT_PASSWORD`。回环映射可保留，日常连接不再修改编排或重建 mysql；不使用数据库 root 账号作日常远程查看。
 
 种子仅在空业务库/隔离测试库重灌（服务器终端）：
 
