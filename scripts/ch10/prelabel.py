@@ -3,7 +3,7 @@ import asyncio
 
 from pydantic import BaseModel, Field
 
-from app.core.llm import get_chat_model
+from app.core import llm
 from app.core.taxonomy import LABEL2ID, terminology_table
 
 
@@ -27,7 +27,7 @@ PRELABEL_PROMPT = """你是电商客服主题标注员。对照下面这份 17 �
 
 
 async def prelabel_one(text: str) -> list[str]:
-    model = get_chat_model().with_structured_output(_Labeled)
+    model = llm.structured(_Labeled)
     try:
         r: _Labeled = await model.ainvoke(
             PRELABEL_PROMPT.format(terminology=terminology_table(), text=text))

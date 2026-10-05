@@ -11,7 +11,11 @@ MiniMax-M3 走 json_mode 10 次全败(把 JSON Schema 原样吐回来),同一模
 function calling 流式非流式各 12 次全过。降级到必炸的通路,不如当场失败——异常抛到
 调用点,那里降级成安全默认值,日志里还留得下真正的出错位置。用假模型跑,不调上游。
 """
+import json
+
+import httpx
 import pytest
+from langchain_openai import ChatOpenAI
 from langchain_core.exceptions import OutputParserException
 from langchain_core.runnables import RunnableLambda
 from pydantic import BaseModel, Field
@@ -156,7 +160,7 @@ def test_minimax_structured_forces_non_streaming(monkeypatch):
     """
     seen = {}
 
-    def fake_get_chat_model(streaming=False, model=None, temperature=None):
+    def fake_get_chat_model(streaming=False, model=None, temperature=None, slot="chat"):
         seen["streaming"] = streaming
         raise RuntimeError("stop-here")      # 拿到参数就够,不真建模型
 
@@ -220,3 +224,70 @@ async def test_失败不留跨调用状态_下一次照样从头试(flaky):
 
     r = await llm.structured(_Check, model="dead-model").ainvoke("x")
     assert r.reason == "function_calling"           # 上一次全败,这一次照样试、照样能成
+
+
+# 使用真实 LangChain 请求构造和解析器，模拟不接受 json_schema 的上游；不访问网络。
+@pytest.mark.parametrize("entry", ["prelabel", "simulate", "mining", "mining_injected", "extract"])
+async def test_business_entries_use_compatible_tool_calls(monkeypatch, entry):
+    from app.api import extract
+    from app.kb import mining
+    from scripts.ch10 import build_corpus, prelabel
+
+    outputs = {
+        "_Labeled": {"labels": ["尺码", "退换货"]},
+        "_SimBatch": {"items": [{"text": "买大了想退", "labels": ["尺码", "退换货"]}]},
+        "QaExtraction": {"questions": ["如何退货"], "answers": ["联系客服申请"]},
+        "AfterSalesTicket": {"order_id": "1001", "request_type": "退款",
+                             "expected_solution": "申请退款"},
+    }
+    requests = []
+
+    def respond(request):
+        body = json.loads(request.content)
+        requests.append(body)
+        if "response_format" in body:
+            return httpx.Response(400, json={"error": {
+                "message": "This response_format type is unavailable now",
+                "type": "invalid_request_error", "code": "invalid_request_error",
+            }})
+        name = body["tools"][0]["function"]["name"]
+        return httpx.Response(200, json={
+            "id": "test-completion", "object": "chat.completion", "created": 0,
+            "model": "deepseek-flash", "choices": [{"index": 0,
+                "finish_reason": "tool_calls", "message": {
+                    "role": "assistant", "content": None, "tool_calls": [{
+                        "id": "call-test", "type": "function", "function": {
+                            "name": name, "arguments": json.dumps(outputs[name]),
+                        },
+                    }],
+                },
+            }],
+        })
+
+    transport = httpx.MockTransport(respond)
+    with httpx.Client(transport=transport) as sync_client:
+        async with httpx.AsyncClient(transport=transport) as async_client:
+            model = ChatOpenAI(model="deepseek-flash", api_key="test-only",
+                               base_url="https://deepseek.invalid/v1", max_retries=0,
+                               http_client=sync_client, http_async_client=async_client)
+            monkeypatch.setattr(llm, "get_chat_model", lambda **kwargs: model)
+            if entry == "mining_injected":
+                def unexpected_factory(**kwargs):
+                    raise AssertionError("注入模型时不能重新创建默认模型")
+                monkeypatch.setattr(llm, "get_chat_model", unexpected_factory)
+            if entry == "prelabel":
+                assert await prelabel.prelabel_one("买大了想退") == ["尺码", "退换货"]
+            elif entry == "simulate":
+                result = await build_corpus.simulate("尺码", 1)
+                assert result == [{"text": "买大了想退", "labels": ["尺码", "退换货"],
+                                   "origin": "simulated"}]
+            elif entry.startswith("mining"):
+                client = model if entry == "mining_injected" else None
+                result = await mining.extract_qa(["用户:如何退货"], model=client)
+                assert result == [mining.QaPair(question="如何退货", answer="联系客服申请")]
+            else:
+                result = await extract.get_extractor().ainvoke({"text": "订单1001申请退款"})
+                assert result.model_dump() == outputs["AfterSalesTicket"]
+    assert len(requests) == 1
+    assert "response_format" not in requests[0]
+    assert requests[0]["tools"][0]["type"] == "function"

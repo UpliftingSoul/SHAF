@@ -444,7 +444,7 @@ Langfuse Cloud 提供 trace 与意图 Token 统计；成本脚本分页读取 Ob
 | `tests/test_kb_models.py` | 知识数据模型回归测试；是否连接真实依赖由夹具决定。 |
 | `tests/test_kb_repository.py` | 真实知识仓储回归测试；是否连接真实依赖由夹具决定。 |
 | `tests/test_llm.py` | 聊天上游适配回归测试；是否连接真实依赖由夹具决定。 |
-| `tests/test_llm_structured.py` | llm.structured 的通路选择:只走 function calling + 流式,失败重试一次就抛给调用点。 |
+| `tests/test_llm_structured.py` | 结构化输出通路、重试及模型注入回归；模拟 HTTP 请求验证预标、补数、知识挖掘和售后提取兼容。 |
 | `tests/test_llm_usage.py` | 流式用量不许被重复累加。 |
 | `tests/test_memory.py` | 三层上下文和滑窗回归测试；是否连接真实依赖由夹具决定。 |
 | `tests/test_model_guard.py` | 型号机械闸:拿 ch04 评估真判出来的那条幻觉当第一条用例。 |

@@ -7,6 +7,7 @@ import random
 
 from pydantic import BaseModel
 
+from app.core import llm
 from app.core.llm import get_chat_model
 from app.core.taxonomy import LABEL2ID, TOPIC_CLASSES, terminology_table
 from app.db import repository
@@ -69,7 +70,7 @@ async def clean_texts(texts: list[str], concurrency: int = 8) -> list[str]:
 
 
 async def simulate(name: str, need: int) -> list[dict]:
-    model = get_chat_model().with_structured_output(_SimBatch)
+    model = llm.structured(_SimBatch)
     out: list[dict] = []
     misses = 0
     while len(out) < need and misses < 5:

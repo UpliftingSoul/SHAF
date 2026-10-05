@@ -1,3 +1,5 @@
+"""对话知识挖掘：统一结构化提取，结果暂存、去重后交由人工审核。"""
+
 import logging
 from datetime import datetime
 
@@ -5,7 +7,7 @@ from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
-from app.core.llm import get_chat_model
+from app.core import llm
 from app.core.prompts import MINING_PROMPT
 from app.db import repository
 from app.kb import dedup
@@ -34,10 +36,8 @@ async def extract_qa(conversation_texts: list[str], model=None) -> list[QaPair]:
     异步从多段对话文本中挖掘提取问答对，返回标准化QaPair对象列表
     适配glm‑5.2接口限制：接收双数组格式结构化输出，再还原为问答对象
     """
-    # 使用传入模型，未传入则获取全局默认大模型实例
-    model = model or get_chat_model()
-    # 构建处理链：挖掘Prompt + 绑定结构化输出Schema(QaExtraction双数组)
-    chain = MINING_PROMPT | model.with_structured_output(QaExtraction)
+    # 保留模型注入入口，结构化提取统一走 function calling、校验和重试。
+    chain = MINING_PROMPT | llm.structured(QaExtraction, client=model)
     # 将多段对话用分隔符拼接，异步调用大模型获取结构化结果
     result: QaExtraction = await chain.ainvoke(
         {"conversations": "\n---\n".join(conversation_texts)}

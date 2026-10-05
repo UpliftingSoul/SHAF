@@ -1,19 +1,20 @@
+"""售后信息提取 API：通过统一结构化通路解析工单，校验输入并隔离上游错误。"""
+
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from langchain_core.runnables import Runnable
 
-from app.core.llm import get_chat_model
+from app.core import llm
 from app.core.prompts import EXTRACT_PROMPT
 from app.schemas.extract import AfterSalesTicket, ExtractRequest
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# with_structured_output 把售后描述 pydantic 模型变成对模型输出的约束，管道符把它和提示词模板串成一条可调用的链。
+# 统一绑定 Pydantic schema，避免依赖 SDK 默认输出方式及各上游兼容差异。
 def get_extractor() -> Runnable:
-    model = get_chat_model()
-    return EXTRACT_PROMPT | model.with_structured_output(AfterSalesTicket)
+    return EXTRACT_PROMPT | llm.structured(AfterSalesTicket)
 
 
 @router.post("/api/extract", response_model=AfterSalesTicket)

@@ -244,7 +244,8 @@ def needs_non_streaming_tools(
 
 
 def structured(schema, *, model: str | None = None, streaming: bool = True,
-               temperature: float | None = None, slot: str = "chat"):
+               temperature: float | None = None, slot: str = "chat",
+               client: ChatOpenAI | None = None):
     """
     创建项目统一的结构化输出 Runnable。
 
@@ -253,6 +254,7 @@ def structured(schema, *, model: str | None = None, streaming: bool = True,
     已知不支持流式 tool_calls 的模型族自动切为非流式。偶发失败原样重试一次，再失败则把真实异常交给调用点处理。
 
     temperature 会继续透传到底层模型；评估、自检等“裁判型”调用应传 0。
+    client 支持知识挖掘等入口注入模型；注入实例保留自身配置，仍复用同一解析与重试通路。
     """
     from langchain_core.runnables import RunnableLambda
 
@@ -263,7 +265,7 @@ def structured(schema, *, model: str | None = None, streaming: bool = True,
     if needs_non_streaming_tools(model, slot=slot):
         streaming = False
 
-    m = get_chat_model(
+    m = client if client is not None else get_chat_model(
         streaming=streaming,
         model=model,
         temperature=temperature,
