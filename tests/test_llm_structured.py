@@ -235,7 +235,7 @@ async def test_business_entries_use_compatible_tool_calls(monkeypatch, entry):
 
     outputs = {
         "_Labeled": {"labels": ["尺码", "退换货"]},
-        "_SimBatch": {"items": [{"text": "买大了想退", "labels": ["尺码", "退换货"]}]},
+        "SimulatedCorpusBatch": {"items": [{"text": "买大了想退", "labels": ["尺码", "退换货"]}]},
         "QaExtraction": {"questions": ["如何退货"], "answers": ["联系客服申请"]},
         "AfterSalesTicket": {"order_id": "1001", "request_type": "退款",
                              "expected_solution": "申请退款"},
@@ -291,3 +291,20 @@ async def test_business_entries_use_compatible_tool_calls(monkeypatch, entry):
     assert len(requests) == 1
     assert "response_format" not in requests[0]
     assert requests[0]["tools"][0]["type"] == "function"
+    if entry == "simulate":
+        function = requests[0]["tools"][0]["function"]
+        assert function["name"] == "SimulatedCorpusBatch"
+        assert "模拟" in function["description"]
+
+
+async def test_simulation_logs_parser_cause_without_full_payload(monkeypatch, capsys):
+    from scripts.ch10 import build_corpus
+
+    def fail(_):
+        raise OutputParserException("Unknown tool type: 'get_weather'\nfull-batch-payload")
+
+    monkeypatch.setattr(llm, "structured", lambda schema: RunnableLambda(fail))
+    assert await build_corpus.simulate("订单修改", 1) == []
+    log = capsys.readouterr().out
+    assert log.count("Unknown tool type: 'get_weather'") == 5
+    assert "full-batch-payload" not in log

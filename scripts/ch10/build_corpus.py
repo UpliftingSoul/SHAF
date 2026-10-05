@@ -5,7 +5,8 @@ import json
 import pathlib
 import random
 
-from pydantic import BaseModel
+from langchain_core.exceptions import OutputParserException
+from pydantic import BaseModel, Field
 
 from app.core import llm
 from app.core.llm import get_chat_model
@@ -29,8 +30,11 @@ class _SimItem(BaseModel):
     labels: list[str]
 
 
-class _SimBatch(BaseModel):
-    items: list[_SimItem]
+class SimulatedCorpusBatch(BaseModel):
+    """生成带主题标签的电商客服模拟用户问题列表。"""
+
+    # 类名即 function calling 的工具名；使用明确的公开名称，避免上游误选无关工具。
+    items: list[_SimItem] = Field(description="模拟问题列表，每条包含完整问题文本及命中的主题标签")
 
 
 SIMULATE_PROMPT = """你是电商客服语料造数员。为猫用品电商「喵喵优选」(卖猫粮、冻干、猫零食、猫砂盆、\
@@ -70,16 +74,20 @@ async def clean_texts(texts: list[str], concurrency: int = 8) -> list[str]:
 
 
 async def simulate(name: str, need: int) -> list[dict]:
-    model = llm.structured(_SimBatch)
+    model = llm.structured(SimulatedCorpusBatch)
     out: list[dict] = []
     misses = 0
     while len(out) < need and misses < 5:
         n = min(SIM_BATCH, need - len(out))
         try:
-            r: _SimBatch = await model.ainvoke(SIMULATE_PROMPT.format(
+            r: SimulatedCorpusBatch = await model.ainvoke(SIMULATE_PROMPT.format(
                 n=n, name=name, terminology=terminology_table()))
         except Exception as e:
-            print(f"[simulate] {name} 一批失败({type(e).__name__}),重试(misses={misses + 1})")
+            # 解析异常只记录首行，暴露工具名/格式问题，不将整批返回内容刷进日志。
+            detail = ""
+            if isinstance(e, OutputParserException):
+                detail = ": " + str(e).partition("\n")[0][:160]
+            print(f"[simulate] {name} 一批失败({type(e).__name__}{detail}),重试(misses={misses + 1})")
             misses += 1
             continue
         got = 0
