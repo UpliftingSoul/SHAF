@@ -291,7 +291,7 @@ Langfuse Cloud 提供 trace 与意图 Token 统计；成本脚本分页读取 Ob
 | `scripts/ch10/scan_threshold_replay.py` | 验证集通过 ONNX 服务打分一次，固定分数表重演九个候选阈值并写扫描报告。 |
 | `scripts/ch10/serve.py` | ONNX + FastAPI 独立分类服务，按可配置批量和线程数限制 CPU 资源，不加载 Torch/PEFT。 |
 | `scripts/ch10/supplement_sizefit.jsonl` | 尺码适配定向补充训练语料，不用于修改测试考卷。 |
-| `scripts/ch10/train.py` | 17 类多标签 full/LoRA 训练、最优参数恢复、阈值校准及标准模型/适配器保存。 |
+| `scripts/ch10/train.py` | 国内镜像下载基座、17 类多标签 full/LoRA 训练、预热与衰减、最优参数恢复、阈值校准及标准模型/适配器保存。 |
 | `scripts/ch10/validate_golden.py` | ch10 预标质量闸:黄金样例上标签集合完全一致率 ≥ 80% 才放行批量预标。 |
 | `scripts/check_architecture.py` | 校验手册逐文件清单的 100% 覆盖、重复和过期路径。 |
 | `scripts/cost_by_intent.py` | 分页读取 Langfuse Observations v2，跨事件关联意图，汇总请求与 Token 并生成页面报告。 |

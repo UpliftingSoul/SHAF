@@ -115,7 +115,7 @@ dc --profile classifier up -d --force-recreate classifier
 
 随后跑阈值扫描、单句实验和少量归类。任何阶段失败不发布；恢复上一整套 model、ONNX、tokenizer、threshold 和报告，重新创建服务，不混用新旧产物。旧分类记录不自动重分类。
 
-LoRA 模板秩 64/alpha 128，合并后才导出 ONNX，推理服务不需 Torch。训练仍加载基础模型，16GB 不保证所有任务同时运行。内存不足先降 batch、提高累积步数；有效 batch = batch × 累积。在 backend 容器可用：
+LoRA 模板秩 64/alpha 128，学习率 `2e-4`，前 10% 优化步预热后余弦衰减；每轮验证、早停并恢复最优权重。实际参数记录在 `model/training_config.json`。合并后才导出 ONNX，推理服务不需 Torch。训练仍加载基础模型，16GB 不保证所有任务同时运行。内存不足先降 batch、提高累积步数；有效 batch = batch × 累积。在 backend 容器可用：
 
 ```bash
 make ch10-train TRAIN_ARGS="--mode lora --batch-size 2 --eval-batch-size 8 --gradient-accumulation-steps 8 --cpu-threads 4"

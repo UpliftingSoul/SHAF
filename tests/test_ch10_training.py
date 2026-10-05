@@ -55,10 +55,46 @@ def test_defaults_and_environment_cli_precedence(monkeypatch):
     monkeypatch.setenv("CH10_TRAIN_MODE", "full")
     monkeypatch.delenv("CH10_LORA_RANK", raising=False)
     assert train.parse_args([]).lora_rank == 64
+    assert train.parse_args([]).warmup_ratio == 0
+    assert train.parse_args([]).lr_scheduler == "linear"
     monkeypatch.setenv("CH10_TRAIN_MODE", "lora")
+    assert train.parse_args([]).warmup_ratio == 0.1
+    assert train.parse_args([]).lr_scheduler == "cosine"
+    monkeypatch.setenv("CH10_WARMUP_RATIO", "0.05")
+    monkeypatch.setenv("CH10_LR_SCHEDULER", "linear")
+    assert train.parse_args([]).warmup_ratio == 0.05
+    overridden = train.parse_args(["--warmup-ratio", "0.15", "--lr-scheduler", "cosine"])
+    assert overridden.warmup_ratio == 0.15 and overridden.lr_scheduler == "cosine"
     assert train.parse_args(["--mode", "full"]).mode == "full"
     with pytest.raises(SystemExit):
         train.parse_args(["--lora-rank", "0"])
+    for ratio in ("-0.1", "1", "nan"):
+        with pytest.raises(SystemExit):
+            train.parse_args(["--warmup-ratio", ratio])
+    monkeypatch.setenv("CH10_LR_SCHEDULER", "typo")
+    with pytest.raises(SystemExit):
+        train.parse_args([])
+
+
+def test_cosine_schedule_warms_up_then_decays():
+    """检查真实优化步数语义，避免把 10% 预热错误当作 0 步。"""
+    from transformers import TrainingArguments, get_scheduler
+
+    args = TrainingArguments(warmup_steps=0.1, lr_scheduler_type="cosine")
+    warmup = args.get_warmup_steps(20)
+    assert warmup == 2
+    parameter = torch.nn.Parameter(torch.zeros(1))
+    optimizer = torch.optim.AdamW([parameter], lr=2e-4)
+    scheduler = get_scheduler(args.lr_scheduler_type, optimizer,
+                              num_warmup_steps=warmup, num_training_steps=20)
+    rates = [scheduler.get_last_lr()[0]]
+    for _ in range(20):
+        optimizer.step()
+        scheduler.step()
+        rates.append(scheduler.get_last_lr()[0])
+    assert rates[0] == 0 and rates[1] < rates[2] == pytest.approx(2e-4)
+    assert rates[2] > rates[10] > rates[19] > rates[20]
+    assert rates[20] == pytest.approx(0)
 
 
 def test_best_snapshot_only_copies_trainable_weights():
@@ -91,6 +127,9 @@ def test_training_to_onnx_and_batched_service(mode, tiny_model, tmp_path, monkey
     tokenizer = AutoTokenizer.from_pretrained(output)
     metadata = json.loads((output / "training_config.json").read_text())
     assert metadata["mode"] == mode
+    assert metadata["warmup_ratio"] == (0.1 if mode == "lora" else 0)
+    assert metadata["lr_scheduler"] == ("cosine" if mode == "lora" else "linear")
+    assert metadata["seed"] == 42
     assert trained.config.problem_type == "multi_label_classification"
     if mode == "lora":
         assert (output / "adapter" / "adapter_config.json").exists()

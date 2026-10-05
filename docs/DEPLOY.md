@@ -301,7 +301,9 @@ python -c 'import urllib.request; print(urllib.request.urlopen("http://127.0.0.1
 3. 同页依次运行数据集划分与增强、训练；到 `/acceptance/eval` 执行测试集评测，通过后回数据页 ONNX 导出。
 4. 按 7.1 启动分类器，再在评测页跑阈值扫描，执行旁路归类；少量数据用“不足一批强跑”。
 
-基础模型首次从 Hugging Face 下载到 `model-cache/`。网络受限可上传完整模型目录，在 backend 终端使用 `make ch10-train TRAIN_ARGS="--base-model /app/data/ch10/base-model"`。LoRA 自动合并后沿用评测/ONNX，无额外推理平台。
+基础模型为 `hfl/chinese-roberta-wwm-ext`（约 1 亿参数，PyTorch 权重约 412MB），训练脚本默认通过国内 HF-Mirror 下载，缓存持久保存在 `model-cache/`，后续复用。可用 `HF_ENDPOINT` 覆盖下载地址；它改变下载入口，不改变模型。镜像不可用时上传完整模型目录，在 backend 终端使用 `make ch10-train TRAIN_ARGS="--base-model /app/data/ch10/base-model"`。
+
+部署模板使用 LoRA：秩 64、alpha 128、学习率 `2e-4`、前 10% 优化步预热后余弦衰减；batch 4 × 累积 4 = 有效 batch 16，CPU 线程 4。最多 8 轮，每轮验证，连续两轮 F1 不提升即早停并恢复最优权重。训练后自动合并，沿用评测/ONNX，无额外推理平台。实际效果以本次验证和测试结果为准。
 
 **不使用旧网页“拉起/停止分类器服务”按钮**，它们控制后端进程，不是独立容器。再次训练/导出前停 classifier，更新和回退见运维手册。
 

@@ -8,13 +8,21 @@ import json
 import os
 import pathlib
 
+from dotenv import load_dotenv
+
+# Hub 在导入时读取下载配置，必须先加载 .env；缓存仍由部署卷持久保存。
+load_dotenv(override=False)
+os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+# 原基座提供 PyTorch 权重；无需请求境外转换服务，训练产物仍保存为 safetensors。
+os.environ.setdefault("DISABLE_SAFETENSORS_CONVERSION", "1")
+
 import numpy as np
 import torch
-from dotenv import load_dotenv
 from sklearn.metrics import f1_score
 from transformers import (AutoModelForSequenceClassification, AutoTokenizer,
                           EarlyStoppingCallback, Trainer, TrainerCallback,
-                          TrainingArguments, default_data_collator)
+                          TrainingArguments, default_data_collator, set_seed)
 
 from app.core.taxonomy import ID2LABEL, LABEL2ID, NUM_CLASSES
 
@@ -47,6 +55,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         default=os.getenv("CH10_CPU_THREADS"))
     parser.add_argument("--epochs", type=float, default=8)
     parser.add_argument("--learning-rate", type=float, default=None)
+    parser.add_argument("--warmup-ratio", type=float, default=os.getenv("CH10_WARMUP_RATIO"))
+    parser.add_argument("--lr-scheduler", choices=("linear", "cosine"),
+                        default=os.getenv("CH10_LR_SCHEDULER"))
     parser.add_argument("--base-model", default=BASE)
     parser.add_argument("--data-dir", type=pathlib.Path, default=DATA)
     parser.add_argument("--output-dir", type=pathlib.Path, default=OUT)
@@ -56,6 +67,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         parser.error("CH10_TRAIN_MODE 必须为 full 或 lora")
     if options.epochs <= 0 or (options.learning_rate is not None and options.learning_rate <= 0):
         parser.error("训练轮数和学习率必须大于零")
+    # LoRA 预热后平滑衰减；full 未显式配置时保留原来的无预热线性调度。
+    if options.warmup_ratio is None:
+        options.warmup_ratio = 0.1 if options.mode == "lora" else 0.0
+    if not 0 <= options.warmup_ratio < 1:
+        parser.error("warmup-ratio 必须在 [0, 1) 范围内")
+    if options.lr_scheduler is None:
+        options.lr_scheduler = "cosine" if options.mode == "lora" else "linear"
+    if options.lr_scheduler not in ("linear", "cosine"):
+        parser.error("CH10_LR_SCHEDULER 必须为 linear 或 cosine")
     return options
 
 
@@ -121,6 +141,10 @@ def main(argv: list[str] | None = None) -> None:
     options = parse_args(argv)
     if options.cpu_threads is not None:
         torch.set_num_threads(options.cpu_threads)
+    # 分类头和 LoRA 在 Trainer 创建前初始化，提前设种子才能复现实验起点。
+    set_seed(42)
+    print(f"训练模式 {options.mode} · 下载源 {os.environ['HF_ENDPOINT']} · "
+          f"warmup {options.warmup_ratio:.0%} · {options.lr_scheduler} 衰减", flush=True)
     tokenizer = AutoTokenizer.from_pretrained(options.base_model)
     model = AutoModelForSequenceClassification.from_pretrained(
         options.base_model, num_labels=NUM_CLASSES, problem_type="multi_label_classification",
@@ -138,6 +162,11 @@ def main(argv: list[str] | None = None) -> None:
         eval_strategy="epoch",                    # v5 参数名,不是 evaluation_strategy
         save_strategy="no",                       # 零磁盘 checkpoint,最优权重走 BestInMemory
         learning_rate=options.learning_rate or (2e-4 if options.mode == "lora" else 2e-5),
+        # 当前 Transformers v5 用 warmup_steps 的小数值表示总优化步数比例。
+        warmup_steps=options.warmup_ratio,
+        lr_scheduler_type=options.lr_scheduler,
+        optim="adamw_torch",
+        max_grad_norm=1.0,
         per_device_train_batch_size=options.batch_size,
         per_device_eval_batch_size=options.eval_batch_size,
         gradient_accumulation_steps=options.gradient_accumulation_steps,
@@ -189,6 +218,11 @@ def main(argv: list[str] | None = None) -> None:
         "trainable_parameters": trainable, "total_parameters": total,
         "learning_rate": args.learning_rate, "batch_size": options.batch_size,
         "gradient_accumulation_steps": options.gradient_accumulation_steps,
+        "epochs": options.epochs, "seed": args.seed,
+        "warmup_ratio": options.warmup_ratio, "lr_scheduler": options.lr_scheduler,
+        "weight_decay": args.weight_decay, "max_grad_norm": args.max_grad_norm,
+        "lora_dropout": 0.05 if options.mode == "lora" else None,
+        "lora_target_modules": ["query", "value"] if options.mode == "lora" else None,
         "best_val_micro_f1": best_cb.best_metric,
     }, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"最优阈值 {best_t},验证集 micro-F1 {best_f1:.4f};模型已存 {options.output_dir}")
